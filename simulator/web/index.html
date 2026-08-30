@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Device Platform - ESP32-S3 + GC9A01 + LVGL 9.5 Simulator</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Outfit:wght@300;400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Top Navbar -->
+        <header class="navbar">
+            <div class="brand">
+                <div class="brand-icon">
+                    <svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="2" fill="none">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <circle cx="12" cy="12" r="6" stroke-dasharray="16 4"></circle>
+                        <circle cx="12" cy="12" r="2" fill="#00D1FF"></circle>
+                    </svg>
+                </div>
+                <div class="brand-text">
+                    <span class="title">Smart Device Platform</span>
+                    <span class="badge">MICROKERNEL v0.8.0</span>
+                    <span class="badge badge-accent">LVGL 9.5.0</span>
+                </div>
+            </div>
+            <div class="header-status">
+                <div class="status-indicator">
+                    <span class="pulse-dot"></span>
+                    <span id="header-conn-status">ESP32-S3 EMU RUNNING</span>
+                </div>
+                <div class="header-chip" id="chip-uptime">UPTIME: 00:00:00</div>
+                <div class="header-chip" id="chip-heap">HEAP: 320 KB</div>
+            </div>
+        </header>
+
+        <!-- Main Workspace Grid -->
+        <main class="main-content">
+            <!-- Left Column: Round GC9A01 Hardware Device Simulation -->
+            <section class="device-section">
+                <div class="section-header">
+                    <h2>GC9A01 240x240 Circular Display</h2>
+                    <span class="subtext">SPI2 DMA &bull; 16-bit RGB565 &bull; Glassmorphism</span>
+                </div>
+
+                <div class="device-stage">
+                    <!-- Physical Device Bezel -->
+                    <div class="device-casing">
+                        <div class="casing-rim"></div>
+                        <div class="casing-screws screw-1"></div>
+                        <div class="casing-screws screw-2"></div>
+                        <div class="casing-screws screw-3"></div>
+                        <div class="casing-screws screw-4"></div>
+
+                        <!-- 240x240 Circular Screen Container -->
+                        <div class="screen-viewport" id="screen-viewport">
+                            <div class="glass-glare"></div>
+
+                            <!-- Screen Base Content -->
+                            <div class="screen-content" id="screen-content">
+                                <!-- Outer Glow Arc -->
+                                <svg class="outer-arc-svg" viewBox="0 0 240 240">
+                                    <circle class="arc-bg" cx="120" cy="120" r="114" />
+                                    <circle class="arc-indicator" id="arc-indicator" cx="120" cy="120" r="114" stroke-dasharray="540 180" stroke-dashoffset="100" />
+                                </svg>
+
+                                <!-- Inner Concentric Ring -->
+                                <div class="inner-concentric-ring"></div>
+
+                                <!-- Top Status Pills -->
+                                <div class="top-pills">
+                                    <div class="pill pill-wifi" id="pill-wifi">
+                                        <span class="dot dot-wifi" id="dot-wifi"></span>
+                                        <span class="pill-label" id="lbl-wifi">WiFi --</span>
+                                    </div>
+                                    <div class="pill pill-ble" id="pill-ble">
+                                        <span class="pill-label" id="lbl-ble">BLE</span>
+                                        <span class="dot dot-ble" id="dot-ble"></span>
+                                    </div>
+                                </div>
+
+                                <!-- Time Cluster -->
+                                <div class="time-cluster">
+                                    <div class="time-row">
+                                        <span class="time-main" id="time-main">12:24</span>
+                                        <span class="time-sec" id="time-sec">:38</span>
+                                        <span class="time-ampm" id="time-ampm">PM</span>
+                                    </div>
+                                    <div class="date-str" id="date-str">28 AUG 2026</div>
+                                </div>
+
+                                <!-- Divider -->
+                                <div class="glow-divider"></div>
+
+                                <!-- System Health Chip -->
+                                <div class="status-chip chip-ok" id="status-chip">
+                                    <span class="chip-dot" id="chip-dot"></span>
+                                    <span class="chip-text" id="chip-text">SYSTEM OK</span>
+                                </div>
+
+                                <!-- Command Glass Card -->
+                                <div class="cmd-glass-card" id="cmd-card">
+                                    <div class="cmd-card-top">
+                                        <span class="cmd-card-title" id="cmd-card-title">CMD: READY</span>
+                                        <span class="cmd-card-time" id="cmd-card-time">4 ms</span>
+                                    </div>
+                                    <div class="cmd-card-bottom">
+                                        <span class="cmd-card-icon" id="cmd-card-icon">✓</span>
+                                        <span class="cmd-card-msg" id="cmd-card-msg">PASS &bull; SYSTEM READY</span>
+                                    </div>
+                                </div>
+
+                                <!-- Bottom Info -->
+                                <div class="bottom-info">
+                                    <span class="fw-tag" id="fw-tag">FW v1.0.0</span>
+                                    <span class="uptime-tag" id="uptime-tag">00:00:00</span>
+                                </div>
+                                <div class="heap-bar-container">
+                                    <div class="heap-bar-fill" id="heap-bar-fill" style="width: 72%;"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Hardware Controls Toolbar -->
+                <div class="device-controls">
+                    <div class="ctrl-group">
+                        <label for="brightness-slider">LCD Brightness</label>
+                        <div class="slider-wrapper">
+                            <input type="range" id="brightness-slider" min="10" max="100" value="80" oninput="updateBrightness(this.value)">
+                            <span id="brightness-val">80%</span>
+                        </div>
+                    </div>
+                    <div class="ctrl-actions">
+                        <button class="action-btn" onclick="triggerCommand('wifi connect Home_IoT_5G pass123')">📶 Connect WiFi</button>
+                        <button class="action-btn" onclick="triggerCommand('time sync')">⏱ Sync SNTP</button>
+                        <button class="action-btn" onclick="triggerCommand('self-test')">🧪 Self Test</button>
+                        <button class="action-btn" onclick="triggerCommand('reboot')">🔄 Reboot</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Right Column: Interactive UART Serial Console & Telemetry -->
+            <section class="console-section">
+                <!-- Serial Terminal Panel -->
+                <div class="panel terminal-panel">
+                    <div class="panel-header">
+                        <div class="panel-title">
+                            <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" fill="none" stroke-width="2">
+                                <polyline points="4 17 10 11 4 5"></polyline>
+                                <line x1="12" y1="19" x2="20" y2="19"></line>
+                            </svg>
+                            <span>UART0 Serial Console (115200 Baud)</span>
+                        </div>
+                        <div class="terminal-actions">
+                            <button class="icon-btn" onclick="clearTerminal()" title="Clear Console">⌫ Clear</button>
+                            <button class="icon-btn" onclick="exportLogs()" title="Export Logs">📥 Export</button>
+                        </div>
+                    </div>
+
+                    <!-- Terminal Output Screen -->
+                    <div class="terminal-screen" id="terminal-screen">
+                        <div class="term-line term-banner">================================================</div>
+                        <div class="term-line term-banner"> Smart Device Firmware - MICROKERNEL EDITION</div>
+                        <div class="term-line term-banner"> Target: ESP32-S3 | Display: GC9A01 240x240</div>
+                        <div class="term-line term-banner"> Microkernel: v0.8.0 | LVGL: v9.5.0</div>
+                        <div class="term-line term-banner"> Type 'help' for command list</div>
+                        <div class="term-line term-banner">================================================</div>
+                        <div class="term-line term-pass">[PASS] Microkernel v0.8.0 initialized</div>
+                        <div class="term-line term-pass">[PASS] Platform shim initialized (Core 0/1 pinned)</div>
+                        <div class="term-line term-pass">[PASS] Event bus initialized (mk_queue)</div>
+                        <div class="term-line term-pass">[PASS] NVS initialized & settings loaded</div>
+                        <div class="term-line term-pass">[PASS] SPI bus initialized MOSI=11 CLK=12</div>
+                        <div class="term-line term-pass">[PASS] GC9A01 detected 240x240 RGB565</div>
+                        <div class="term-line term-pass">[PASS] LVGL 9.5 direct adapter initialized</div>
+                        <div class="term-line term-pass">[PASS] Time service initialized TZ=IST-5:30</div>
+                        <div class="term-line term-ready">SYSTEM READY - MICROKERNEL RUNNING</div>
+                        <div class="term-line">&nbsp;</div>
+                    </div>
+
+                    <!-- Terminal Command Input Bar -->
+                    <form class="terminal-input-bar" id="terminal-form" onsubmit="handleCommandSubmit(event)">
+                        <span class="prompt-prefix">device&gt;</span>
+                        <input type="text" id="cmd-input" class="cmd-input" placeholder="Type command (e.g. help, wifi scan, status, self-test)..." autocomplete="off" autofocus>
+                        <button type="submit" class="send-btn">Send</button>
+                    </form>
+                </div>
+
+                <!-- Quick Commands & Presets Toolbar -->
+                <div class="quick-commands-bar">
+                    <span class="bar-title">Presets:</span>
+                    <button class="chip-btn" onclick="triggerCommand('help')">help</button>
+                    <button class="chip-btn" onclick="triggerCommand('version')">version</button>
+                    <button class="chip-btn" onclick="triggerCommand('status')">status</button>
+                    <button class="chip-btn" onclick="triggerCommand('wifi scan')">wifi scan</button>
+                    <button class="chip-btn" onclick="triggerCommand('ble status')">ble status</button>
+                    <button class="chip-btn" onclick="triggerCommand('time status')">time status</button>
+                    <button class="chip-btn" onclick="triggerCommand('kernel status')">kernel status</button>
+                    <button class="chip-btn" onclick="triggerCommand('kernel tasks')">kernel tasks</button>
+                    <button class="chip-btn" onclick="triggerCommand('display test')">display test</button>
+                    <button class="chip-btn" onclick="triggerCommand('factory_reset')">factory reset</button>
+                </div>
+
+                <!-- Telemetry & Task Architecture Inspector -->
+                <div class="panel telemetry-panel">
+                    <div class="panel-header">
+                        <div class="panel-title">
+                            <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" fill="none" stroke-width="2">
+                                <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+                                <line x1="8" y1="21" x2="16" y2="21"></line>
+                                <line x1="12" y1="17" x2="12" y2="21"></line>
+                            </svg>
+                            <span>Microkernel Dual-Core Scheduler Telemetry</span>
+                        </div>
+                    </div>
+                    <div class="telemetry-grid">
+                        <div class="telemetry-card">
+                            <span class="card-label">Core 1 (App Kernel)</span>
+                            <span class="card-val val-green">GUI (P7), CMD (P6), SYS (P3)</span>
+                            <span class="card-sub">Preemptive Priority Scheduler</span>
+                        </div>
+                        <div class="telemetry-card">
+                            <span class="card-label">Core 0 (ESP-IDF)</span>
+                            <span class="card-val val-blue">WiFi, NimBLE, LWIP, TCP</span>
+                            <span class="card-sub">Platform Driver Shim Coexistence</span>
+                        </div>
+                        <div class="telemetry-card">
+                            <span class="card-label">Context Switches</span>
+                            <span class="card-val val-cyan" id="stat-ctx-sw">1,842</span>
+                            <span class="card-sub">1ms Tick Preemption</span>
+                        </div>
+                        <div class="telemetry-card">
+                            <span class="card-label">Free RAM</span>
+                            <span class="card-val val-orange" id="stat-free-heap">320 KB</span>
+                            <span class="card-sub">Min: 280 KB (DMA OK)</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script src="simulator.js"></script>
+</body>
+</html>

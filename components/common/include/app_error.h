@@ -1,0 +1,88 @@
+#pragma once
+#include <cstdint>
+
+namespace smart_device {
+
+enum class ErrorDomain : uint32_t {
+    SUCCESS = 0,
+    SYSTEM  = 1000,
+    STORAGE = 1100,
+    DISPLAY = 1200,
+    SPI     = 1300,
+    I2C     = 1400,
+    WIFI    = 2000,
+    BLE     = 2100,
+    USB     = 2200,
+    TIME    = 3000,
+    COMMAND = 4000,
+    OTA     = 5000,
+};
+
+enum class AppError : uint32_t {
+    OK = 0,
+
+    // System 1000-1099
+    SYSTEM_NOT_INITIALIZED = 1001,
+    SYSTEM_ALREADY_INITIALIZED = 1002,
+    SYSTEM_INVALID_STATE = 1003,
+    SYSTEM_TIMEOUT = 1004,
+    SYSTEM_NO_MEMORY = 1005,
+    SYSTEM_NOT_SUPPORTED = 1006,
+
+    // Storage 1100-1199
+    STORAGE_NVS_INIT_FAILED = 1101,
+    STORAGE_NVS_OPEN_FAILED = 1102,
+    STORAGE_KEY_NOT_FOUND = 1103,
+    STORAGE_WRITE_FAILED = 1104,
+
+    // Display 1200-1299
+    DISPLAY_NOT_INITIALIZED = 1201,
+    DISPLAY_INIT_FAILED = 1202,
+    DISPLAY_INVALID_PARAM = 1203,
+
+    // SPI 1300-1399
+    SPI_BUS_INIT_FAILED = 1301,
+    SPI_DEVICE_ADD_FAILED = 1302,
+
+    // I2C 1400-1499
+    I2C_BUS_INIT_FAILED = 1401,
+
+    // WiFi 2000-2099
+    WIFI_NOT_INITIALIZED = 2001,
+    WIFI_AUTH_FAILED = 2002,
+    WIFI_TIMEOUT = 2003,
+    WIFI_NOT_CONNECTED = 2004,
+    WIFI_SCAN_FAILED = 2005,
+
+    // BLE 2100-2199
+    BLE_NOT_INITIALIZED = 2101,
+    BLE_INIT_FAILED = 2102,
+    BLE_ADVERTISING_FAILED = 2103,
+
+    // USB 2200-2299
+    USB_NOT_INITIALIZED = 2201,
+
+    // Time 3000-3099
+    TIME_NOT_SYNCED = 3001,
+    TIME_NTP_TIMEOUT = 3002,
+    TIME_INVALID = 3003,
+
+    // Command 4000-4099
+    COMMAND_UNKNOWN = 4001,
+    COMMAND_INVALID_PARAM = 4002,
+    COMMAND_EXEC_FAILED = 4003,
+    COMMAND_BUSY = 4004,
+    COMMAND_TIMEOUT = 4005,
+
+    // OTA 5000-5099
+    OTA_NOT_INITIALIZED = 5001,
+    OTA_IN_PROGRESS = 5002,
+    OTA_DOWNLOAD_FAILED = 5003,
+    OTA_VERIFY_FAILED = 5004,
+    OTA_ROLLBACK = 5005,
+};
+
+const char* app_error_to_string(AppError err);
+ErrorDomain app_error_domain(AppError err);
+
+} // namespace smart_device

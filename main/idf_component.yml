@@ -1,0 +1,4 @@
+## IDF Component Manager dependencies
+dependencies:
+  espressif/esp_lcd_gc9a01: "^2.0.4"
+  lvgl/lvgl: "^9.5.0"
