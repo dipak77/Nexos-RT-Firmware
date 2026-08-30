@@ -16,10 +16,11 @@ kernel status / kernel tasks / kernel stats
 reset-info
 reboot / factory reset
 
-`switch_kernel` is not a product command. Next OS is the only OS.
+`switch_kernel` is not a product command. Nexos-RT is the only OS.
 
 ## Result Object
 Every command returns CommandResult { id, command_id, status, message, error_code, execution_time_ms }
 
 ## GUI Indicator
 COMMAND RECEIVED -> WORKING ... -> SUCCESS ✓ PASS / FAIL ✕
+
