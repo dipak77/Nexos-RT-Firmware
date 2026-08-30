@@ -16,13 +16,14 @@ The round PCB is printed **SPI** next to VCC. Silk names `SCL` / `SDA` are borro
 
 - GC9A01 on this module talks **4-wire SPI** (Waveshare and the IC datasheet).
 - Extra pins **DC** and **CS** exist only on SPI panels. I2C would be VCC, GND, SDA, SCL (and maybe RST) — no DC, no CS.
-- Some boards fit an optional CS resistor, but production wiring still drives CS and RST explicitly.
+- This board revision provides optional CS/RST strap positions. Explicit GPIO connections are
+  preferred for deterministic warm resets, but a fitted strap permits the pins to be omitted.
 
 7-pin header silk **from VCC toward RST**:
 
 `VCC  GND  SCL  SDA  DC  CS  RST`
 
-No BLK pin. Backlight LED is powered from **VCC**. The TFT VER1.0 / GC9A01 module is specified for **3.3 V operation**; connect VCC to a DevKit **3V3** pin. Do not use USB 5 V.
+No BLK pin. Backlight LED is powered from **VCC**. The photographed TFT VER1.0 breakout includes an onboard U3 regulator and accepts **5 V at VCC** (3.3 V is also accepted by matching module documentation). The SPI signal pins remain 3.3 V logic.
 
 I2C on this project (GPIO 16/17, or the old README 5/6) is **expansion for sensors/touch only**. Do not wire the LCD SDA/SCL there.
 
@@ -30,7 +31,7 @@ I2C on this project (GPIO 16/17, or the old README 5/6) is **expansion for senso
 
 | Display silk | Meaning | J1 Pin | J1 silk | ESP32-S3 GPIO | Status / Wiring Rule |
 |---|---|---|---|---|---|
-| **VCC** | Backlight + panel power | 1 or 2 | **3V3** | **3.3 V** | Direct wire; never USB 5 V |
+| **VCC** | Regulated breakout input + backlight | 21 | **5V** | **5 V** | Direct wire to the photographed module |
 | **GND** | Ground | 22 | **G** | **GND** | Direct wire |
 | **SCL** | SPI Clock | 18 | **12** | **GPIO 12** | Direct wire |
 | **SDA** | SPI MOSI | 17 | **11** | **GPIO 11** | Direct wire |

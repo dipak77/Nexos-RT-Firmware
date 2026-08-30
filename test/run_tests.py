@@ -128,14 +128,14 @@ class TestFirmwareContracts(unittest.TestCase):
     def read(self, relative_path):
         return (self.root / relative_path).read_text(encoding="utf-8")
 
-    def test_display_uses_safe_supply_and_explicit_control_pins(self):
+    def test_display_matches_regulated_breakout_and_control_pins(self):
         source = self.read("src/main.cpp")
         self.assertIn("#define TFT_CS    9", source)
         self.assertIn("#define TFT_RST   14", source)
         self.assertIn("#define TFT_SPI_HZ 2000000U", source)
         self.assertIn("SPI.begin(TFT_SCLK, -1, TFT_MOSI, -1)", source)
-        self.assertIn("VCC=3V3 only", source)
-        self.assertNotIn("VCC=5V", source)
+        self.assertIn("breakout VCC=5V", source)
+        self.assertIn("SPI GPIO levels=3V3", source)
 
     def test_both_builds_use_the_same_8mb_ota_layout(self):
         pio = self.read("platformio.ini")

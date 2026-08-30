@@ -7,7 +7,7 @@
 **UART:** Silicon Labs CP210x, **COM5**, 115200 baud
 **MAC (this board):** `1c:db:d4:9c:1d:78`
 
-This file is the canonical description of the project: hardware, corrected wiring, **Nexos-RT**, boot flow, pin map, commands, and source layout. The TFT VER1.0 module is a 3.3 V part; CS and RST are explicitly wired to GPIO9 and GPIO14.
+This file is the canonical description of the project: hardware, corrected wiring, **Nexos-RT**, boot flow, pin map, commands, and source layout. The photographed TFT VER1.0 breakout accepts 5 V through its onboard U3 regulator; its SPI inputs remain 3.3 V logic. CS and RST may be wired to GPIO9 and GPIO14 or omitted when the module's onboard straps are fitted.
 
 **Product policy:** Nexos-RT is the only OS name. Dual-kernel switch language is withdrawn.
 
@@ -82,8 +82,9 @@ Back silk:
 - `IC: GC9A01`
 - Header marked **SPI**
 - Pin order from VCC toward RST: **`VCC GND SCL SDA DC CS RST`**
-- Some revisions fit an optional CS resistor, but the reliable wiring drives CS and RST explicitly.
-- **No BLK pin.** Backlight LED is tied to VCC. Feed the module **3.3 V**, never USB 5 V.
+- This revision exposes optional CS/RST strap positions. Driving both pins explicitly is
+  preferred, but the module can use its fitted straps for a five-wire connection.
+- **No BLK pin.** Backlight LED is tied to VCC. The breakout accepts 5 V through U3.
 
 `SCL` / `SDA` on this PCB are **SPI CLK and SPI MOSI**, not I2C. Proof: extra **DC** and **CS** pins exist only on SPI panels.
 
@@ -153,7 +154,7 @@ Power options (mutually exclusive): USB-to-UART and/or ESP USB; **5V + G**; or *
 
 ## 4. Correct display wiring
 
-Use the signal pins near the USB end, plus either DevKit `3V3` pin for display VCC. The USB `5V` pin is not a valid supply for this TFT module.
+Use the signal pins near the USB end and the DevKit `5V` pin for the photographed TFT VER1.0 breakout's VCC input. GPIO signals remain 3.3 V.
 
 ### 4.1 Desk orientation (same as the working photo)
 
@@ -171,27 +172,27 @@ Start at the hole **closest to the UART socket** and walk toward the antenna:
 | Count from UART | Silk | Display wire |
 |---|---|---|
 | 1 | **G** | **GND** |
-| 2 | **5V** | **empty; never TFT VCC** |
+| 2 | **5V** | **VCC** |
 | 3 | **14** | **RST** |
 | 4 | **13** | **empty** |
 | 5 | **12** | **SCL** |
 | 6 | **11** | **SDA** |
 | 7 | **10** | **DC** |
 | 8 | **9** | **CS** |
-| 21 or 22 | **3V3** | **VCC** |
+| 21 or 22 | **3V3** | **empty** (optional alternate VCC supply) |
 
 ```
 antenna (left)                                    UART USB (right)
 3V3 …  9   10   11   12   13   14   5V   G
- │      │    │    │    │          │          │
- VCC    CS   DC   SDA  SCL        RST        GND
+        │    │    │    │          │     │    │
+        CS   DC   SDA  SCL        RST   VCC  GND
 ```
 
-### 4.3 Round PCB — seven wires
+### 4.3 Round PCB — five required wires, two optional control wires
 
 | Display silk | ESP silk | Notes |
 |---|---|---|
-| **VCC** | **3V3** | 3.3 V module supply; never USB 5 V. |
+| **VCC** | **5V** | Input to this breakout's onboard regulator and backlight. |
 | **GND** | **G** | Common ground. |
 | **SCL** | **12** | SPI clock |
 | **SDA** | **11** | SPI MOSI. Not I2C. |
@@ -204,7 +205,7 @@ antenna (left)                                    UART USB (right)
 The DevKit sits in the breadboard. Each ESP pin is common only with the **other holes in that same 5-hole row**.
 
 - Plug each Dupont in the **same row** as the counted pin.
-- Do not use the long red/blue power rails unless you have verified they are tied to `3V3`/`G`.
+- Do not use the long red/blue power rails unless you have verified they are tied to `5V`/`G`.
 - One row off = firmware still runs (RGB LED / serial alive), glass stays flat blue.
 
 Unplug USB before moving VCC. Do not hot-swap display power.
@@ -251,10 +252,10 @@ Hardware uses the same CS=9 and RST=14 wiring for both build tracks.
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| Backlight on, no pixels / snow | 5 V over-voltage, missing CS/RST, or wrong SPI row | Power-cycle at 3.3 V and verify all seven connections |
+| Backlight on, no pixels / snow | Wrong SPI row, SPI mode/path, or missing CS/RST straps | Verify SCL/SDA/DC, then connect CS/RST if the module straps are absent |
 | Completely black | RST held low or controller damaged | Verify GPIO14 reaches RST and pulses high-low-high |
 | No GRAM writes | CS floating or wrong GPIO | Connect CS directly to GPIO9 |
-| GPIO21 used as power | J3 silk `21` is GPIO21 | Use a J1 `3V3` pin for VCC |
+| GPIO21 used as power | J3 silk `21` is GPIO21 | Use the J1 `5V` supply pin for VCC |
 
 GPIO9–14 are **not** strapping pins. The initialization sequence deliberately resets the LCD after GPIO setup, so a normal power-up transition on GPIO14 is harmless.
 
@@ -445,7 +446,7 @@ A native Next OS context-switch port (`arch/esp32s3/mk_context.S`) is the v1.0 g
 | Wi-Fi / BLE / OTA | not in the Arduino image | full services |
 | OS | **Nexos-RT** only | **Nexos-RT** only |
 
-Arduino is the currently flashed bring-up path. Its runtime is verified over COM5; the corrected 3.3 V seven-wire display path must pass the startup red/green/blue test before the dashboard is considered hardware-verified.
+Arduino is the currently flashed bring-up path. Its runtime is verified over COM5; the corrected hardware-SPI display path must pass the startup red/green/blue test before the dashboard is considered hardware-verified.
 
 ---
 
@@ -673,9 +674,9 @@ Repo topic docs: `docs/architecture.md`, `docs/architecture_microkernel.md` (Nex
 
 ## 17. Known pitfalls
 
-1. **TFT VCC on 5 V.** This TFT VER1.0 module is specified for 3.3 V and may be damaged by 5 V.
-2. **RST floating.** Connect RST directly to GPIO14.
-3. **CS floating.** Connect CS directly to GPIO9.
+1. **Confusing power and logic voltage.** This breakout accepts 5 V VCC, but its SPI GPIO remains 3.3 V logic.
+2. **RST omitted without a fitted strap.** Connect RST directly to GPIO14.
+3. **CS omitted without a fitted strap.** Connect CS directly to GPIO9.
 4. **SCL/SDA treated as I2C.** They are SPI SCLK/MOSI on GPIO12/11.
 5. **J3 silk `21` is not a supply pin.**
 6. **SPI signal wires one breadboard row off.**
@@ -695,13 +696,13 @@ OS: Nexos-RT v1.2.0  (only product kernel)
 
 USB-end, bottom row, from UART:
   G  → GND
-  5V empty
+  5V → VCC
   14 → RST    13 empty
   12 → SCL
   11 → SDA
   10 → DC
   9  → CS
-  3V3 → VCC  (antenna-end J1 supply)
+  3V3 empty   (optional alternate breakout supply)
 
 Flash:   pio run -e esp32s3_arduino -t upload --upload-port COM5
 ```

@@ -6,7 +6,8 @@ Complete guide to flashing and running the **Smart Device Firmware v1.2.0** onto
 
 ## 🔌 Exact 7-Pin Hardware Wiring Map
 
-Connect the 7 pins of your round GC9A01 module to the ESP32-S3 board as shown below:
+Connect the round GC9A01 module to the ESP32-S3 as shown below. CS and RST are
+recommended; they may remain unplugged only when this VER1.0 PCB's onboard straps are fitted.
 
 ```
 +-------------------------------------------------------------+
@@ -18,11 +19,11 @@ Connect the 7 pins of your round GC9A01 module to the ESP32-S3 board as shown be
 |  4. SDA (SPI MOSI Data)         --->   GPIO 11              |
 |  5. SCL (SPI Clock)             --->   GPIO 12              |
 |  6. GND (Ground)                --->   GND                  |
-|  7. VCC (Power 3.3V)            --->   3.3V (3V3 Pin)       |
+|  7. VCC (Breakout power input)  --->   5V                   |
 +-------------------------------------------------------------+
 ```
 
-*(Note: On this 7-pin module, the LED backlight is powered internally through the `VCC` 3.3V pin, so no separate `BLK` pin is required).*
+*(This photographed TFT VER1.0 breakout has an onboard regulator and accepts 5 V at VCC. Its SPI signals are still driven at the ESP32's 3.3 V GPIO level. There is no separate BLK pin.)*
 
 ---
 
@@ -70,7 +71,7 @@ powershell -ExecutionPolicy Bypass -File release/flash_device.ps1 -Port COM5
 =========================================================
  SMART DEVICE — Nexos-RT V1.2
  GC9A01 HW SPI 2MHz  SCL=12 SDA=11 DC=10 CS=9 RST=14
- TFT VER1.0 VCC=3V3 only (never USB 5V)
+ TFT VER1.0 breakout VCC=5V; SPI GPIO levels=3V3
 =========================================================
 [DISPLAY] Adafruit GC9A01A hardware SPI begin at 2000000 Hz
 [DISPLAY] startup test RED -> GREEN -> BLUE -> BLACK

@@ -309,7 +309,7 @@ void cli_task(void* pvParameters) {
                 } else if (line == "version") {
                     Serial.println("Smart Device Platform v1.2.0");
                     Serial.printf("OS: %s V%s\n", MK_CONFIG_OS_NAME, MK_CONFIG_VERSION_STRING);
-                    Serial.println("Display: GC9A01 HW SPI 2MHz MOSI=11 SCLK=12 DC=10 CS=9 RST=14 VCC=3V3");
+                    Serial.println("Display: GC9A01 HW SPI 2MHz MOSI=11 SCLK=12 DC=10 CS=9 RST=14 VCC=5V breakout input");
                 } else if (line == "reboot") {
                     ESP.restart();
                 } else {
@@ -329,7 +329,7 @@ void setup() {
     Serial.println("\n=========================================================");
     Serial.println(" SMART DEVICE — Nexos-RT V1.2");
     Serial.println(" GC9A01 HW SPI 2MHz  SCL=12 SDA=11 DC=10 CS=9 RST=14");
-    Serial.println(" TFT VER1.0 VCC=3V3 only (never USB 5V)");
+    Serial.println(" TFT VER1.0 breakout VCC=5V; SPI GPIO levels=3V3");
     Serial.println("=========================================================");
 
     if (!os().init()) {

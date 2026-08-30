@@ -3,7 +3,8 @@
 // Display is 4-wire SPI. Silk SCL/SDA are SPI CLK/MOSI, not I2C.
 // Silk from VCC toward RST: VCC, GND, SCL, SDA, DC, CS, RST
 // No BLK pin — backlight LED is tied to VCC. The TFT VER1.0 module is a
-// 3.3 V part; feed VCC from the DevKit's 3V3 rail, never from USB 5 V.
+// The photographed VER1.0 breakout accepts 5 V at VCC through its onboard regulator.
+// SPI control signals remain 3.3 V GPIO. CS/RST are optional only when board straps are fitted.
 // Pins below are native FSPI (SPI2) IOMUX: 11 MOSI, 12 SCLK, 13 MISO, 10 SS.
 
 #define LCD_PIN_MOSI        11  // SDA  J1-11  SPI MOSI

@@ -2,7 +2,8 @@
 
 > **Operating System:** **Nexos-RT v1.2** (Production Hardened Standalone Microkernel Runtime).
 > **Canonical Reference:** See `docs/COMPLETE_SYSTEM_REFERENCE.md`.
-> **Wiring:** 7-wire SPI. VCC is **3V3**; CS is GPIO9 and RST is GPIO14.
+> **Wiring:** five required wires plus optional CS/RST. VCC is **5V** on the photographed
+> regulated breakout; CS is GPIO9 and RST is GPIO14 when connected.
 
 ## 1. Hardware Identity
 
@@ -10,7 +11,8 @@
 - **Module:** ESP32-S3-WROOM-1 **N8R8** (silk `MCN8R8`) — 8 MB flash, 8 MB octal PSRAM, 342 KB SRAM
 - **USB bridge:** Silicon Labs CP210x (VID:PID `10C4:EA60`) on UART0
 - **Display:** 1.28" round TFT, **240x240**, driver **GC9A01**
-- **Display power:** TFT VER1.0 is a **3.3 V** module. Its backlight is tied to VCC.
+- **Display power:** the TFT VER1.0 breakout has an onboard U3 regulator and accepts
+  **5 V at VCC**. Its SPI signal pins use the ESP32's 3.3 V logic level.
 
 ## 2. Pin Mapping (7-Wire Setup)
 
@@ -18,13 +20,13 @@ Display header order: `VCC GND SCL SDA DC CS RST`.
 
 | Display Pin | Function | Header J1 Pin | ESP32-S3 GPIO | Status / Wiring Rule |
 |---|---|---|---|---|
-| **VCC** | Power + Backlight | J1-1 or J1-2 (`3V3`) | **3.3 V** | Never connect to USB 5 V |
+| **VCC** | Regulated input + backlight | J1-21 (`5V`) | **5 V** | Correct for this breakout revision |
 | **GND** | Ground | J1-22 (`G`) | **GND** | Ground |
 | **SCL / CLK** | SPI Clock | J1-18 (`12`) | **GPIO 12** | Direct connection |
 | **SDA / DIN** | SPI MOSI | J1-17 (`11`) | **GPIO 11** | Direct connection |
 | **DC** | Data/Command | J1-16 (`10`) | **GPIO 10** | Direct connection |
-| **CS** | Chip Select | J1-15 (`9`) | **GPIO 9** | Direct connection; active low |
-| **RST** | Reset | J1-20 (`14`) | **GPIO 14** | Direct connection; active low |
+| **CS** | Chip Select | J1-15 (`9`) | **GPIO 9** | Recommended; may be omitted if onboard CS strap is fitted |
+| **RST** | Reset | J1-20 (`14`) | **GPIO 14** | Recommended; may be omitted if onboard RST strap is fitted |
 
 ### Header J1 Silk Order (Antenna/Top -> USB/Bottom)
 `3V3, 3V3, RST, 4, 5, 6, 7, 15, 16, 17, 18, 8, 3, 46, 9, 10, 11, 12, 13, 14, 5V, G`
@@ -51,7 +53,7 @@ GPIO 9/10/11/12/13/14 are the last six numbered holes above 5V. The previous lis
   - `components/microkernel/core/mk_task.c`: Next OS priority mapping.
 - **Display bring-up configuration (Arduino env):** hardware SPI at a conservative 2 MHz,
   explicit CS on GPIO9 and hard reset on GPIO14, followed by red/green/blue/black frames
-  before the dashboard. The display supply must be 3.3 V.
+  before the dashboard. The photographed regulated breakout is powered from 5 V.
 - **Serial console commands:** `help, version, status, wifi connect <ssid> <pass>, wifi status,
   ble start/stop, time status/sync, display test, display brightness <0-100>, self-test,
   reboot, factory_reset`.
@@ -71,7 +73,7 @@ entry 0x403c98d0
 ================================================
  Smart Device Firmware - DASHBOARD (Arduino)
  GC9A01 240x240 4-wire SPI (not I2C)
- Pins: SCL=12 SDA=11 DC=10 CS=9 RST=14 VCC=3V3
+ Pins: SCL=12 SDA=11 DC=10 CS=9 RST=14 VCC=5V breakout input
 ================================================
 device>
 ```
@@ -86,13 +88,14 @@ reached the panel; pixel DMA did not.
 **Fixes applied 2026-08-29:**
 - IDF driver no longer holds CS permanently low (`GPIO_NUM_NC`). CS is GPIO9 and toggles.
 - IDF driver fills GRAM **before** DISPON so a failed pixel path stays dark, not snow.
-- Arduino TFT_eSPI now sets `USE_HSPI_PORT` (required on ESP32-S3 / Arduino 3.x).
+- Arduino bring-up now uses Adafruit_GC9A01A over explicit ESP32-S3 hardware SPI at 2 MHz.
 - `main/CMakeLists.txt` required a non-existent `hal` component; it now requires `device_hal`.
 
 **Hardware check against the photos:**
 - Left header (antenna -> USB): `3V3 3V3 RST 4 5 6 7 15 16 17 18 8 3 46 9 10 11 12 13 14 5V G`
-- SCL -> silk **12**, SDA -> silk **11**, DC -> **10**, CS -> **9**, RST -> **14**, VCC -> **3V3**, GND -> **G**
-- CS and RST must both be jumpered; do not rely on optional module resistors.
+- SCL -> silk **12**, SDA -> silk **11**, DC -> **10**, VCC -> **5V**, GND -> **G**
+- CS -> **9** and RST -> **14** are recommended. This photographed PCB can omit them only
+  when its onboard CS/RST strap option is populated.
 
 ## 6. Quick recovery commands
 ```

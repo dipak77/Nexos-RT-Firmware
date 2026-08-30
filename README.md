@@ -36,16 +36,16 @@ Hold the DevKit **antenna / metal can left, USB ports right**. Use the **bottom*
 | Count from UART | Silk | Display silk | Wire? |
 |---|---|---|---|
 | 1 | **G** | GND | yes |
-| 2 | **5V** | — | **empty — do not power this TFT from 5 V** |
+| 2 | **5V** | VCC | yes — this VER1.0 breakout accepts 5 V at VCC |
 | 3 | **14** | RST | yes |
 | 4 | 13 | — | **empty** |
 | 5 | **12** | SCL (SPI CLK) | yes |
 | 6 | **11** | SDA (SPI MOSI, not I2C) | yes |
 | 7 | **10** | DC | yes |
 | 8 | **9** | CS | yes |
-| 21 or 22 | **3V3** | VCC | yes — TFT VER1.0 is a 3.3 V module |
+| 21 or 22 | **3V3** | — | optional alternative supply for this breakout |
 
-Connect **CS → GPIO9** and **RST → GPIO14**. The firmware pulses reset and toggles CS for each hardware-SPI transaction; this removes reliance on optional board resistors and makes warm reboots deterministic.
+Connecting **CS → GPIO9** and **RST → GPIO14** is recommended. This PCB revision can also operate with them omitted when its onboard CS/RST straps are populated; the firmware still performs software initialization.
 
 Display header order: `VCC GND SCL SDA DC CS RST`. No BLK pin.
 
@@ -55,14 +55,13 @@ Display header order: `VCC GND SCL SDA DC CS RST`. No BLK pin.
 
 | GPIO / silk | Why |
 |---|---|
-| J1 `5V` (USB end) | Over-volts the 3.3 V TFT module |
 | J3 silk `21` | GPIO21, **not** a power pin |
 | GPIO 35 / 36 / 37 | Octal PSRAM inside N8R8 |
 | GPIO 19 / 20 | Native USB |
 | GPIO 43 / 44 | UART0 console |
 | GPIO 38 | RGB LED |
 
-The DevKit does expose USB **5V**, but it is not the TFT supply. Use either J1 **3V3** pin for display VCC. Board header reference: `hardware screenshot/esp-dev-kits-en-master-esp32s3.pdf` Chapter 1.
+For the photographed TFT VER1.0 breakout, connect VCC to J1 **5V**. Its onboard U3 regulator supplies the 3.3 V panel electronics. The ESP32 SPI signals remain 3.3 V. Board header reference: `hardware screenshot/esp-dev-kits-en-master-esp32s3.pdf` Chapter 1.
 
 ---
 
@@ -234,8 +233,8 @@ hardware screenshot/         photos + Espressif PDFs
 
 ## Pitfalls
 
-1. VCC on USB **5V** — the TFT VER1.0 module is specified for 3.3 V and can be damaged.
-2. RST or CS left floating — connect RST to 14 and CS to 9.
+1. Confusing the module's 5 V VCC input with the ESP32's 3.3 V-only GPIO signals.
+2. RST or CS omitted on a PCB without the optional onboard straps — connect RST to 14 and CS to 9 when in doubt.
 3. SCL/SDA confused with I2C — they are SPI SCLK/MOSI on 12/11.
 4. J3 silk `21` is GPIO21, not a supply pin.
 5. Duponts one breadboard row off.
