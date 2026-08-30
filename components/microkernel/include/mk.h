@@ -18,6 +18,8 @@
 #include "mk_cpp.hpp"
 #endif
 
-#if defined(INC_FREERTOS_H) && !defined(MK_ALLOW_CHIP_PORT)
-#error "Vendor scheduler headers are not allowed in application code. Include mk.h and use mk_*."
-#endif
+// Do not reject a translation unit merely because an ESP-IDF header pulled in
+// FreeRTOS transitively.  The preprocessor cannot distinguish that legitimate
+// dependency from a direct application include, and the former made ordinary
+// Wi-Fi/console users fail depending on include order.  Direct vendor scheduler
+// includes are enforced by the source-contract tests instead.

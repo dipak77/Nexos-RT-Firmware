@@ -362,7 +362,6 @@ static void system_thread(void* arg) {
                 copy_cstr(ui.system_status, "NO WIFI");
             }
 
-            auto& runtime = lvgl_adapter::LvglRuntime::instance();
             {
                 LvglLockGuard lock;
                 gui::DashboardScreen::instance().update(ui);

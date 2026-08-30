@@ -50,7 +50,10 @@ mk_status_t mk_mutex_lock(mk_mutex_t* mutex, uint32_t timeout_ms){
 mk_status_t mk_mutex_unlock(mk_mutex_t* mutex){
     if(!mutex) return MK_ERR_INVALID;
     mk_port_enter_critical();
-    if(!mutex->locked){ mk_port_exit_critical(); return MK_ERR_INVALID; }
+    if(!mutex->locked || mutex->owner != mk_port_task_self()){
+        mk_port_exit_critical();
+        return MK_ERR_INVALID;
+    }
     mutex->locked=0;
     mutex->owner=NULL;
     mk_port_exit_critical();
@@ -85,6 +88,8 @@ mk_status_t mk_mutex_unlock(mk_mutex_t* mutex){
     if(xSemaphoreGive(mutex->handle)==pdTRUE) return MK_OK;
     return MK_ERR_INVALID;
 }
-bool mk_mutex_is_locked(mk_mutex_t* mutex){ return false; }
+bool mk_mutex_is_locked(mk_mutex_t* mutex){
+    return mutex && uxSemaphoreGetCount(mutex->handle) == 0;
+}
 #endif
 

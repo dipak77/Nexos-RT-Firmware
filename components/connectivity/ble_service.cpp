@@ -109,7 +109,7 @@ void BleService::set_connected(bool connected){
 }
 
 static void ble_on_sync(void){
-    ESP_LOGI(TAG, "BLE sync on core %d", xPortGetCoreID());
+    ESP_LOGI(TAG, "BLE sync on core %d", mk_current_core());
     // NimBLE host task (Core0) context — publish only, don't block. start_advertising is lightweight.
     BleService::instance().start_advertising();
 }

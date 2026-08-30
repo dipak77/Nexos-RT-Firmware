@@ -1,13 +1,13 @@
 # Nexos-RT Smart Device Firmware
 
-ESP32-S3 + 1.28" GC9A01 round TFT firmware. The product OS is **Nexos-RT V1.1** (`mk_*`).
+ESP32-S3 + 1.28" GC9A01 round TFT firmware. The product OS is **Nexos-RT V1.2** (`mk_*`).
 
 **Live on hardware:** PlatformIO `[env:esp32s3_arduino]`, UART **COM5** (CP210x), MAC `1c:db:d4:9c:1d:78`.
 
 | | |
 |---|---|
-| Firmware | 1.1.0 |
-| OS | **Nexos-RT V1.1.0** |
+| Firmware | 1.2.0 |
+| OS | **Nexos-RT V1.2.0** |
 | Board | ESP32-S3-DevKitC-1 **v1.1**, WROOM-1 **N8R8** |
 | Display | 1.28" TFT VER1.0, GC9A01, 240×240, 4-wire SPI |
 | CPU | Dual Xtensa LX7 @ 240 MHz |
@@ -22,7 +22,7 @@ Nexos-RT is the **only** application OS. There is no dual-kernel switch. Applica
 The image flashed to this board is the **Arduino bring-up**:
 
 1. Power on (UART USB)
-2. **NEXOS-RT** branded splash (rings, N mark, **BASE OS V1.1**, loading: KERNEL CORE → SCHEDULER → DRIVERS → DISPLAY → READY)
+2. **NEXOS-RT** branded splash (rings, N mark, **BASE OS V1.2**, loading: KERNEL CORE → SCHEDULER → DRIVERS → DISPLAY → READY)
 3. Dashboard chip **Nexos-RT**, health, heap, uptime
 
 Replay splash from serial: `boot` (GUI task owns the TFT; CLI only queues the splash).
@@ -36,15 +36,16 @@ Hold the DevKit **antenna / metal can left, USB ports right**. Use the **bottom*
 | Count from UART | Silk | Display silk | Wire? |
 |---|---|---|---|
 | 1 | **G** | GND | yes |
-| 2 | **5V** | VCC | yes — backlight is on VCC; `3V3` is too weak |
-| 3 | 14 | RST | **empty** |
+| 2 | **5V** | — | **empty — do not power this TFT from 5 V** |
+| 3 | **14** | RST | yes |
 | 4 | 13 | — | **empty** |
 | 5 | **12** | SCL (SPI CLK) | yes |
 | 6 | **11** | SDA (SPI MOSI, not I2C) | yes |
 | 7 | **10** | DC | yes |
-| 8 | 9 | CS | **empty** |
+| 8 | **9** | CS | yes |
+| 21 or 22 | **3V3** | VCC | yes — TFT VER1.0 is a 3.3 V module |
 
-On the round PCB, **CS and RST stay unplugged**. Module silk: R8 pulls CS low; this panel may leave CS/RST open. Driving **RST → GPIO14** holds the GC9A01 in reset (black glass). Driving **CS → GPIO9 HIGH** deselects the panel.
+Connect **CS → GPIO9** and **RST → GPIO14**. The firmware pulses reset and toggles CS for each hardware-SPI transaction; this removes reliance on optional board resistors and makes warm reboots deterministic.
 
 Display header order: `VCC GND SCL SDA DC CS RST`. No BLK pin.
 
@@ -54,14 +55,14 @@ Display header order: `VCC GND SCL SDA DC CS RST`. No BLK pin.
 
 | GPIO / silk | Why |
 |---|---|
-| J1 `3V3` (antenna end) | Dim backlight |
-| J3 silk `21` | GPIO21, **not** 5 V |
+| J1 `5V` (USB end) | Over-volts the 3.3 V TFT module |
+| J3 silk `21` | GPIO21, **not** a power pin |
 | GPIO 35 / 36 / 37 | Octal PSRAM inside N8R8 |
 | GPIO 19 / 20 | Native USB |
 | GPIO 43 / 44 | UART0 console |
 | GPIO 38 | RGB LED |
 
-Official J1 (antenna = pin 1, USB = pin 22): pin 21 = **5V**, pin 22 = **G**. Docs: `hardware screenshot/esp-dev-kits-en-master-esp32s3.pdf` Chapter 1.
+The DevKit does expose USB **5V**, but it is not the TFT supply. Use either J1 **3V3** pin for display VCC. Board header reference: `hardware screenshot/esp-dev-kits-en-master-esp32s3.pdf` Chapter 1.
 
 ---
 
@@ -74,13 +75,13 @@ Official J1 (antenna = pin 1, USB = pin 22): pin 21 = **5V**, pin 22 = **G**. Do
 | MOSI | `TFT_MOSI` | 11 |
 | SCLK | `TFT_SCLK` | 12 |
 | DC | `TFT_DC` | 10 |
-| CS | `TFT_CS` | **-1** (not driven) |
-| RST | `TFT_RST` | **-1** (not driven) |
+| CS | `TFT_CS` | **9** |
+| RST | `TFT_RST` | **14** |
 
-Driver: `Adafruit_GC9A01A` **software SPI**. The hardware-SPI constructor remaps ESP32-S3 pins and blanks this panel.
+Driver: `Adafruit_GC9A01A` hardware FSPI at a conservative **2 MHz**. The firmware explicitly binds SCLK 12 and MOSI 11 before the driver initializes.
 
 **IDF product track** — `components/board/include/board_pins.h`  
-Same MOSI/CLK/DC. `LCD_PIN_RST = -1`. `LCD_PIN_CS` is still 9 in that header; **do not jumper CS or RST** on this module. I2C expansion (not LCD): GPIO 16 / 17.
+Same MOSI/CLK/DC/CS/RST pin map. I2C expansion (not LCD): GPIO 16 / 17.
 
 ---
 
@@ -90,7 +91,7 @@ Same MOSI/CLK/DC. `LCD_PIN_RST = -1`. `LCD_PIN_CS` is still 9 in that header; **
 |---|---|---|
 | Env | `esp32s3_arduino` (default) | `esp32s3_idf` / `idf.py` |
 | Entry | `main/arduino_main.cpp` → `src/main.cpp` + `src/kernel_manager.cpp` | `main/app_main.cpp` |
-| Display | Adafruit GFX software SPI | `esp_lcd` + GC9A01 + LVGL 9.5 |
+| Display | Adafruit GFX hardware SPI, 2 MHz | `esp_lcd` + GC9A01 + LVGL 9.5 |
 | GUI | Round dashboard + splash | LVGL dashboard |
 | Console | UART commands below | `CommandService` (UART / USB / BLE / Wi-Fi) |
 | Wi-Fi / BLE / OTA | not in this image | full services |
@@ -123,7 +124,7 @@ ESP32-S3-WROOM-1-N8R8 + GC9A01
 ```
 POWER ON → ROM SPI boot → PSRAM
   KernelManager::init()     mk_init + diagnostics + display mutex
-  tft.begin() software SPI
+  SPI.begin(12, -1, 11, -1) + tft.begin(2 MHz hardware SPI)
   NEXOS-RT splash
   spawn GUI / SYSTEM / CLI on core 1 (waiting on start gate)
   mk_start()                gate opens
@@ -140,7 +141,7 @@ POWER ON → ROM SPI boot → PSRAM
 
 Core 0: vendor radio / USB. App tasks stay on core 1.
 
-### Kernel mechanics (V1.1 hardening)
+### Kernel mechanics (V1.2 hardening)
 
 - Launch gate: tasks block until `mk_start()` (no run-before-register race)
 - Task slots: FREE → RESERVED → LIVE → DELETING, SMP spinlock
@@ -188,7 +189,7 @@ pio device monitor -p COM5 -b 115200
 Expected:
 
 ```
-SMART DEVICE — Nexos-RT V1.1
+SMART DEVICE — Nexos-RT V1.2
 [KERNEL] Nexos-RT ready.
 [BOOT] Nexos-RT branding splash
 [PASS] Nexos-RT task GUI  prio=7  core=1
@@ -233,14 +234,12 @@ hardware screenshot/         photos + Espressif PDFs
 
 ## Pitfalls
 
-1. Duponts on the **antenna-end** `3V3` cluster — firmware talks to USB-end `10/11/12/5V/G`.
-2. RST on GPIO14 — black screen.
-3. CS driven high — panel deselects.
-4. VCC on `3V3` — dim blue disc.
-5. J3 silk `21` is not 5 V.
-6. Adafruit **hardware** SPI on ESP32-S3.
-7. Wrong breadboard strip.
-8. Serial open in download mode (`boot:0x0 DOWNLOAD`) — reset with IO0 high.
+1. VCC on USB **5V** — the TFT VER1.0 module is specified for 3.3 V and can be damaged.
+2. RST or CS left floating — connect RST to 14 and CS to 9.
+3. SCL/SDA confused with I2C — they are SPI SCLK/MOSI on 12/11.
+4. J3 silk `21` is GPIO21, not a supply pin.
+5. Duponts one breadboard row off.
+6. Serial open in download mode (`boot:0x0 DOWNLOAD`) — reset with IO0 high.
 
 I2C 16/17 is for future sensors/touch only. IMU sip-tracking, UV-C, and deep-sleep hydration UI are **not** in this firmware.
 
@@ -297,5 +296,3 @@ All architectural, operational, hardware, and engineering documents are indexed 
 | **ESP32-S3 Datasheet** | [`hardware screenshot/esp32-s3_datasheet_en.pdf`](hardware%20screenshot/esp32-s3_datasheet_en.pdf) |
 | **DevKit Hardware Manual** | [`hardware screenshot/esp-dev-kits-en-master-esp32s3.pdf`](hardware%20screenshot/esp-dev-kits-en-master-esp32s3.pdf) |
 | **Pinout Diagram** | [`hardware screenshot/ESP32-S3_DevKitC-1_pinlayout_v1.1.jpg`](hardware%20screenshot/ESP32-S3_DevKitC-1_pinlayout_v1.1.jpg) |
-
-

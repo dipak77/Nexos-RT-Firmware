@@ -44,5 +44,4 @@ Product Application & Services (mk_* only)
    - 4-second timeout checking generating `[!!] STALL` warnings if threads become unresponsive.
    - Internal SRAM monitoring (`heap_caps_get_free_size(MALLOC_CAP_INTERNAL)`) preventing 8MB PSRAM from masking internal heap exhaustion.
 4. **Header Barrier**:
-   - `mk.h` issues `#error` at compile-time if vendor RTOS headers are included in application units without `MK_ALLOW_CHIP_PORT`.
-
+   - Source-contract tests reject direct vendor RTOS includes and API calls outside the microkernel port; ESP-IDF headers may still include scheduler types transitively.

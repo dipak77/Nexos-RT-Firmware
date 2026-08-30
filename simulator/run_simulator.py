@@ -13,9 +13,9 @@ import threading
 from typing import Dict, Any, List, Tuple
 
 # Firmware Defaults
-FW_VERSION = "1.0.0"
+FW_VERSION = "1.2.0"
 HW_VERSION = "S3-DK-V1.1"
-KERNEL_VERSION = "0.8.0"
+KERNEL_VERSION = "1.2.0"
 MODEL = "S3-GC9A01"
 BUILD_TIME = datetime.datetime.now().strftime("%b %d %Y %H:%M:%S")
 
@@ -128,7 +128,7 @@ class CommandEngine:
                 f"Product       SmartDisplay\n"
                 f"Model         {MODEL}\n"
                 f"Firmware      {FW_VERSION}\n"
-                f"Kernel        {KERNEL_VERSION} (Microkernel Edition)\n"
+                f"Nexos-RT      {KERNEL_VERSION}\n"
                 f"Hardware      {HW_VERSION}\n"
                 f"Build         {BUILD_TIME}\n"
                 f"ESP-IDF       6.1 (Option A Architecture)\n"
@@ -232,7 +232,7 @@ class CommandEngine:
             result_msg = msg
         elif cmd == "kernel_status":
             result_msg = (
-                f"Microkernel   v{KERNEL_VERSION}\n"
+                f"Nexos-RT      v{KERNEL_VERSION}\n"
                 f"Status        RUNNING\n"
                 f"Uptime        {self.state.uptime_sec * 1000} ms\n"
                 f"Tasks Active  {self.state.active_tasks}\n"
@@ -242,7 +242,7 @@ class CommandEngine:
             )
         elif cmd == "kernel_tasks":
             result_msg = (
-                "Microkernel Tasks (Active: 4, Max: 16):\n"
+                "Nexos-RT Tasks (Active: 4, Max: 16):\n"
                 "  ID  NAME        PRIO  STATE    AFFINITY  STACK_FREE\n"
                 "  1   GUI         7     READY    Core 1    3120 B\n"
                 "  2   COMMAND     6     BLOCKED  Core 1    2840 B\n"

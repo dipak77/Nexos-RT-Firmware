@@ -124,8 +124,9 @@ void CommandRegistry::register_builtin_commands(){
     register_command({CommandId::GET_VERSION, "version", "Show firmware version", "version", [](auto args){
         char buf[256];
         snprintf(buf, sizeof(buf),
-            "Product       %s\nModel         %s\nFirmware      %s\nHardware      %s\nSDK           %s\nESP-IDF       %s\nBuild         %s\nCommit        %s\n",
-            APP_NAME, APP_MODEL, APP_VERSION_STRING, APP_HW_VERSION, "1.0.0", IDF_TARGET_VERSION, BUILD_TIMESTAMP, GIT_COMMIT);
+            "Product       %s\nModel         %s\nFirmware      %s\nHardware      %s\nNexos-RT      %s\nESP-IDF       %s\nBuild         %s\nCommit        %s\n",
+            APP_NAME, APP_MODEL, APP_VERSION_STRING, APP_HW_VERSION,
+            MK_CONFIG_VERSION_STRING, IDF_TARGET_VERSION, BUILD_TIMESTAMP, GIT_COMMIT);
         return CommandResult{0, CommandId::GET_VERSION, CommandStatus::SUCCESS, "version", buf, 0, 0};
     }});
 
@@ -272,6 +273,8 @@ void CommandRegistry::register_builtin_commands(){
         mk_diagnostics_tick();
         auto kstats = mk_kernel_get_stats();
         char buf[320];
+        char health[24];
+        mk_diagnostics_copy_health(health, sizeof(health));
         snprintf(buf, sizeof(buf),
             "%s          v%s\n"
             "Status        %s\n"
@@ -284,7 +287,7 @@ void CommandRegistry::register_builtin_commands(){
             MK_CONFIG_OS_NAME,
             MK_CONFIG_VERSION_STRING,
             mk_is_running() ? "RUNNING" : "INITIALIZED",
-            mk_diagnostics_health_text(),
+            health,
             (unsigned long long)kstats.uptime_ms,
             (unsigned long)kstats.total_tasks,
             (unsigned long long)kstats.context_switches,
@@ -306,10 +309,12 @@ void CommandRegistry::register_builtin_commands(){
         mk_diagnostics_tick();
         auto kstats = mk_kernel_get_stats();
         char buf[320];
+        char health[24];
+        mk_diagnostics_copy_health(health, sizeof(health));
         snprintf(buf, sizeof(buf),
                  "{\"os\":\"%s\",\"version\":\"%s\",\"running\":%d,\"health\":\"%s\",\"uptime_ms\":%llu,\"tasks\":%lu,\"ctx_sw\":%llu,\"free_heap\":%lu}",
                  MK_CONFIG_OS_NAME, MK_CONFIG_VERSION_STRING, mk_is_running()?1:0,
-                 mk_diagnostics_health_text(),
+                 health,
                  (unsigned long long)kstats.uptime_ms,
                  (unsigned long)kstats.total_tasks, (unsigned long long)kstats.context_switches, (unsigned long)kstats.free_heap);
         return CommandResult{0, CommandId::GET_STATUS, CommandStatus::SUCCESS, "kernel stats", buf, 0, 0};

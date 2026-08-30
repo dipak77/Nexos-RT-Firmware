@@ -28,12 +28,12 @@ struct UiState {
     char command_message[64]{"SYSTEM READY"};
     uint32_t uptime_sec{0};
     uint32_t free_heap{0};
-    char firmware_version[16]{"1.0.0"};
+    char firmware_version[16]{"1.2.0"};
     char system_status[16]{"SYSTEM OK"};
     uint8_t brightness{80};
     bool show_splash{false};
     uint8_t cpu_load{0};
-    char kernel_version[16]{"0.8.0"};
+    char kernel_version[16]{"1.2.0"};
 };
 
 class Gui {

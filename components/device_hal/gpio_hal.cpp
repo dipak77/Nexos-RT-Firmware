@@ -1,8 +1,5 @@
 #include "gpio_hal.h"
-#include "esp_log.h"
 #include "driver/ledc.h"
-
-static const char* TAG = "GPIO_HAL";
 
 namespace smart_device {
 namespace hal {

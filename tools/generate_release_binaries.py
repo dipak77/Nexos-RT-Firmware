@@ -11,8 +11,9 @@ import shutil
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).parent.parent
-BUILD_DIR = REPO_ROOT / "build"
+BUILD_DIR = REPO_ROOT / ".pio" / "build" / "esp32s3_arduino"
 RELEASE_DIR = REPO_ROOT / "release"
+APP_OFFSET = 0x20000
 
 RELEASE_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -21,7 +22,7 @@ OFFSETS = {
     "bootloader.bin": 0x0000,
     "partition-table.bin": 0x8000,
     "ota_data_initial.bin": 0xF000,
-    "smart_device_firmware.bin": 0x10000,
+    "smart_device_firmware.bin": APP_OFFSET,
 }
 
 def create_initial_ota_data() -> bytes:
@@ -37,10 +38,9 @@ def generate_package():
 
     # 1. Check if built binaries exist, or generate release structure
     files_to_copy = [
-        (BUILD_DIR / "bootloader" / "bootloader.bin", RELEASE_DIR / "bootloader.bin"),
-        (BUILD_DIR / "partition_table" / "partition-table.bin", RELEASE_DIR / "partition-table.bin"),
-        (BUILD_DIR / "ota_data_initial.bin", RELEASE_DIR / "ota_data_initial.bin"),
-        (BUILD_DIR / "smart_device_firmware.bin", RELEASE_DIR / "smart_device_firmware.bin"),
+        (BUILD_DIR / "bootloader.bin", RELEASE_DIR / "bootloader.bin"),
+        (BUILD_DIR / "partitions.bin", RELEASE_DIR / "partition-table.bin"),
+        (BUILD_DIR / "firmware.bin", RELEASE_DIR / "smart_device_firmware.bin"),
     ]
 
     for src, dst in files_to_copy:
@@ -67,7 +67,7 @@ def generate_package():
 
     if app_bin.exists() and boot_bin.exists() and part_bin.exists():
         print("\nMerging into single firmware_all_in_one.bin (Offset 0x0)...")
-        max_size = 0x10000 + app_bin.stat().st_size
+        max_size = APP_OFFSET + app_bin.stat().st_size
         flash_image = bytearray(b"\xFF" * max_size)
 
         with open(boot_bin, "rb") as f:
@@ -84,7 +84,7 @@ def generate_package():
 
         with open(app_bin, "rb") as f:
             app_data = f.read()
-            flash_image[0x10000:0x10000+len(app_data)] = app_data
+            flash_image[APP_OFFSET:APP_OFFSET+len(app_data)] = app_data
 
         with open(merged_bin, "wb") as f:
             f.write(flash_image)

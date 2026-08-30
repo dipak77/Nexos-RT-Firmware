@@ -2,7 +2,7 @@
 setlocal enabledelayedexpansion
 
 echo =========================================================
-echo  Smart Device Firmware v1.0.0 - 1-Click Hardware Flasher
+echo  Smart Device Firmware v1.2.0 - 1-Click Hardware Flasher
 echo  Target: ESP32-S3 ^| Display: GC9A01 240x240 Round TFT
 echo =========================================================
 echo.

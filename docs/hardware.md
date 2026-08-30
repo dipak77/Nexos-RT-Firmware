@@ -16,29 +16,28 @@ The round PCB is printed **SPI** next to VCC. Silk names `SCL` / `SDA` are borro
 
 - GC9A01 on this module talks **4-wire SPI** (Waveshare and the IC datasheet).
 - Extra pins **DC** and **CS** exist only on SPI panels. I2C would be VCC, GND, SDA, SCL (and maybe RST) — no DC, no CS.
-- R8 on the back is a **CS pull-down**. The Chinese note says if R8 is fitted, CS and RST may be left open. We still drive both.
+- Some boards fit an optional CS resistor, but production wiring still drives CS and RST explicitly.
 
 7-pin header silk **from VCC toward RST**:
 
 `VCC  GND  SCL  SDA  DC  CS  RST`
 
-No BLK pin. Backlight LED is powered from **VCC**. Use **5V on J1-21**. 3.3 V on J1-1 often leaves the LED off while the MCU still runs. Logic is 3.3 V; VCC may be 3.3 V or 5 V on this board — 5 V is required for a visible backlight on the unit we have.
+No BLK pin. Backlight LED is powered from **VCC**. The TFT VER1.0 / GC9A01 module is specified for **3.3 V operation**; connect VCC to a DevKit **3V3** pin. Do not use USB 5 V.
 
 I2C on this project (GPIO 16/17, or the old README 5/6) is **expansion for sensors/touch only**. Do not wire the LCD SDA/SCL there.
 
-## Wiring (Proven 5-Wire Setup on J1)
+## Wiring (7-Wire Setup)
 
 | Display silk | Meaning | J1 Pin | J1 silk | ESP32-S3 GPIO | Status / Wiring Rule |
 |---|---|---|---|---|---|
-| **VCC** | Backlight + panel power | 21 | **5V** | **5V** | Direct wire (USB-end pin next to G) |
+| **VCC** | Backlight + panel power | 1 or 2 | **3V3** | **3.3 V** | Direct wire; never USB 5 V |
 | **GND** | Ground | 22 | **G** | **GND** | Direct wire |
 | **SCL** | SPI Clock | 18 | **12** | **GPIO 12** | Direct wire |
 | **SDA** | SPI MOSI | 17 | **11** | **GPIO 11** | Direct wire |
 | **DC** | Data / Command | 16 | **10** | **GPIO 10** | Direct wire |
-| **CS** | Chip Select | - | - | *Open* | **Unconnected** (R8 pulls CS low permanently) |
-| **RST** | Reset | - | - | *Open* | **Unconnected** (Avoids GPIO14 boot glitch holding panel in reset) |
+| **CS** | Chip Select | 15 | **9** | **GPIO 9** | Direct wire; active low |
+| **RST** | Reset | 20 | **14** | **GPIO 14** | Direct wire; active low |
 
 > [!NOTE]
 > GPIO 13 is FSPI MISO and is not connected to this LCD (write-only display pipeline).
 > I2C Expansion (GPIO 16/17) is reserved for external sensors (IMU, Temperature, Fuel Gauge).
-

@@ -1,7 +1,6 @@
 #pragma once
 
 #include <Arduino.h>
-#define MK_ALLOW_CHIP_PORT 1
 #include "mk.h"
 
 struct KernelStats {

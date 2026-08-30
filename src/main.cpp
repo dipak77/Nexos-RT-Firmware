@@ -1,20 +1,23 @@
-// Nexos-RT bring-up. Display: Adafruit GC9A01A SOFTWARE SPI.
-// Hardware SPI on ESP32-S3 re-inits to default pins and blanks this panel.
-// RST/CS stay unplugged (GPIO14 next to 5V/G blanks the panel).
+// Nexos-RT bring-up. The ESP32-S3 variant's native FSPI pins are exactly the
+// display wiring below, so hardware SPI provides a deterministic 2 MHz clock.
+// CS and RST are driven when connected; the module's onboard defaults still
+// allow the firmware to operate while those two leads are being added.
 
 #include <Arduino.h>
+#include <SPI.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_GC9A01A.h>
-#include "driver/gpio.h"
+#include <atomic>
 #include "kernel_manager.h"
 
 #define TFT_DC    10
-#define TFT_CS    -1
-#define TFT_RST   -1
+#define TFT_CS    9
+#define TFT_RST   14
 #define TFT_MOSI  11
 #define TFT_SCLK  12
+#define TFT_SPI_HZ 2000000U
 
-Adafruit_GC9A01A tft(TFT_CS, TFT_DC, TFT_MOSI, TFT_SCLK, TFT_RST, -1);
+Adafruit_GC9A01A tft(&SPI, TFT_DC, TFT_CS, TFT_RST);
 
 #define COLOR_DEEP_BG  0x0000
 #define COLOR_CYAN     0x07FF
@@ -25,9 +28,9 @@ Adafruit_GC9A01A tft(TFT_CS, TFT_DC, TFT_MOSI, TFT_SCLK, TFT_RST, -1);
 #define COLOR_BORDER   0x2966
 #define COLOR_RED      0xF800
 
-volatile uint32_t g_seconds_counter = 0;
-volatile bool g_trigger_color_test = false;
-volatile bool g_trigger_boot = false;
+std::atomic<uint32_t> g_seconds_counter{0};
+std::atomic<bool> g_trigger_color_test{false};
+std::atomic<bool> g_trigger_boot{false};
 
 static KernelManager& os() { return KernelManager::getInstance(); }
 
@@ -45,18 +48,22 @@ void render_dashboard(uint32_t sec, const KernelStats& stats) {
     tft.setTextSize(1);
     tft.setTextColor(COLOR_WHITE);
     tft.setCursor(49, 24);
-    tft.print("WiFi");
+    tft.print("SPI");
 
     tft.fillRoundRect(154, 20, 52, 16, 8, COLOR_CARD);
     tft.setCursor(160, 24);
     tft.setTextColor(COLOR_WHITE);
-    tft.print("BLE");
-    tft.fillCircle(198, 28, 3, COLOR_ORANGE);
+    tft.print("OS");
+    tft.fillCircle(198, 28, 3, COLOR_GREEN);
 
     tft.setTextSize(3);
     tft.setTextColor(COLOR_WHITE, COLOR_DEEP_BG);
     tft.setCursor(76, 48);
-    tft.print("12:24");
+    char time_buf[8];
+    snprintf(time_buf, sizeof(time_buf), "%02lu:%02lu",
+             (unsigned long)((sec / 3600) % 100),
+             (unsigned long)((sec / 60) % 60));
+    tft.print(time_buf);
 
     tft.setTextSize(1);
     tft.setTextColor(COLOR_CYAN, COLOR_DEEP_BG);
@@ -66,7 +73,7 @@ void render_dashboard(uint32_t sec, const KernelStats& stats) {
     tft.print(sec_buf);
 
     tft.setCursor(80, 78);
-    tft.print("30 AUG 2026");
+    tft.print("SYSTEM UPTIME");
     tft.drawFastHLine(70, 96, 100, COLOR_CYAN);
 
     tft.fillRoundRect(50, 106, 140, 20, 10, COLOR_CARD);
@@ -86,7 +93,7 @@ void render_dashboard(uint32_t sec, const KernelStats& stats) {
     tft.setCursor(45, 156);
     char health[20];
     snprintf(health, sizeof(health), "[%s] %s", stats.healthy ? "OK" : "!!",
-             stats.health_text ? stats.health_text : "OK");
+             stats.health_text);
     tft.print(health);
     tft.setTextColor(COLOR_CYAN, COLOR_CARD);
     tft.setCursor(45, 168);
@@ -94,7 +101,7 @@ void render_dashboard(uint32_t sec, const KernelStats& stats) {
 
     tft.setTextColor(0x7BEF, COLOR_DEEP_BG);
     tft.setCursor(45, 198);
-    tft.print("FW V1.1");
+    tft.print("FW V1.2");
     tft.setCursor(150, 198);
     char up_buf[16];
     snprintf(up_buf, sizeof(up_buf), "%02lu:%02lu", (unsigned long)(sec / 60), (unsigned long)(sec % 60));
@@ -158,7 +165,7 @@ void play_boot_flash_screen() {
     tft.setTextSize(1);
     tft.setTextColor(COLOR_CYAN, COLOR_DEEP_BG);
     tft.setCursor(84, 112);
-    tft.print("BASE OS  V1.1");
+    tft.print("BASE OS  V1.2");
     tft.setTextColor(0x8410, COLOR_DEEP_BG);
     tft.setCursor(54, 126);
     tft.print("CUSTOM MICROKERNEL");
@@ -210,12 +217,10 @@ void gui_task(void* pvParameters) {
     for (;;) {
         mk_watchdog_feed_self();
         os().heartbeat("GUI");
-        if (g_trigger_boot) {
-            g_trigger_boot = false;
+        if (g_trigger_boot.exchange(false, std::memory_order_acq_rel)) {
             play_boot_flash_screen();
         }
-        if (g_trigger_color_test) {
-            g_trigger_color_test = false;
+        if (g_trigger_color_test.exchange(false, std::memory_order_acq_rel)) {
             DisplayGuard g(250);
             if (g) {
                 tft.fillScreen(COLOR_CYAN);
@@ -226,7 +231,7 @@ void gui_task(void* pvParameters) {
             }
         }
         stats = os().getStats();
-        render_dashboard(g_seconds_counter, stats);
+        render_dashboard(g_seconds_counter.load(std::memory_order_acquire), stats);
         os().delayMs(1000);
     }
 }
@@ -238,13 +243,14 @@ void sys_monitor_task(void* pvParameters) {
     for (;;) {
         mk_watchdog_feed_self();
         os().heartbeat("SYSTEM");
-        g_seconds_counter = (uint32_t)(mk_time_ms() / 1000ULL);
+        const uint32_t seconds = (uint32_t)(mk_time_ms() / 1000ULL);
+        g_seconds_counter.store(seconds, std::memory_order_release);
         KernelStats stats = os().getStats();
         if (!stats.healthy) {
             Serial.printf("[HEALTH] %s  heap=%uKB  tasks=%d\n",
                           stats.health_text, stats.free_heap_kb, stats.active_tasks_count);
         }
-        if (g_seconds_counter % 5 == 0) {
+        if (seconds % 5 == 0) {
             Serial.printf("[SYSTEM] up=%lus heap=%uKB tasks=%d os=%s health=%s\n",
                           (unsigned long)stats.uptime_seconds,
                           stats.free_heap_kb,
@@ -295,15 +301,15 @@ void cli_task(void* pvParameters) {
                 } else if (line.startsWith("switch_kernel")) {
                     Serial.println("Nexos-RT is the only kernel. switch_kernel is not supported.");
                 } else if (line == "boot") {
-                    g_trigger_boot = true;
+                    g_trigger_boot.store(true, std::memory_order_release);
                     Serial.println("[BOOT] splash queued for GUI");
                 } else if (line == "test") {
-                    g_trigger_color_test = true;
+                    g_trigger_color_test.store(true, std::memory_order_release);
                     Serial.println("[DISPLAY] color test queued");
                 } else if (line == "version") {
-                    Serial.println("Smart Device Platform v1.1.0");
+                    Serial.println("Smart Device Platform v1.2.0");
                     Serial.printf("OS: %s V%s\n", MK_CONFIG_OS_NAME, MK_CONFIG_VERSION_STRING);
-                    Serial.println("Display: GC9A01 software SPI  MOSI=11 SCLK=12 DC=10 CS=open RST=open");
+                    Serial.println("Display: GC9A01 HW SPI 2MHz MOSI=11 SCLK=12 DC=10 CS=9 RST=14 VCC=3V3");
                 } else if (line == "reboot") {
                     ESP.restart();
                 } else {
@@ -321,9 +327,9 @@ void setup() {
     Serial.begin(115200);
     delay(400);
     Serial.println("\n=========================================================");
-    Serial.println(" SMART DEVICE — Nexos-RT V1.1");
-    Serial.println(" GC9A01 software SPI  SCL=12 SDA=11 DC=10 CS=open RST=open");
-    Serial.println(" VCC=5V (USB-end J1 pin next to G). RST unplugged.");
+    Serial.println(" SMART DEVICE — Nexos-RT V1.2");
+    Serial.println(" GC9A01 HW SPI 2MHz  SCL=12 SDA=11 DC=10 CS=9 RST=14");
+    Serial.println(" TFT VER1.0 VCC=3V3 only (never USB 5V)");
     Serial.println("=========================================================");
 
     if (!os().init()) {
@@ -331,16 +337,23 @@ void setup() {
         return;
     }
 
-    pinMode(14, INPUT);
-    pinMode(9, INPUT);
-    gpio_reset_pin((gpio_num_t)TFT_SCLK);
-    gpio_reset_pin((gpio_num_t)TFT_MOSI);
-    gpio_reset_pin((gpio_num_t)TFT_DC);
-
-    Serial.println("[DISPLAY] Adafruit GC9A01A software SPI begin");
-    tft.begin();
+    Serial.printf("[DISPLAY] Adafruit GC9A01A hardware SPI begin at %lu Hz\n",
+                  (unsigned long)TFT_SPI_HZ);
+    SPI.begin(TFT_SCLK, -1, TFT_MOSI, -1);
+    tft.begin(TFT_SPI_HZ);
     tft.setRotation(0);
     tft.invertDisplay(true);
+
+    // A direct full-frame test proves command, clock, data and GRAM writes
+    // before the scheduler or dashboard can obscure a panel fault.
+    Serial.println("[DISPLAY] startup test RED -> GREEN -> BLUE -> BLACK");
+    tft.fillScreen(COLOR_RED);
+    delay(220);
+    tft.fillScreen(COLOR_GREEN);
+    delay(220);
+    tft.fillScreen(0x001F);
+    delay(220);
+    tft.fillScreen(COLOR_DEEP_BG);
 
     Serial.println("[BOOT] Nexos-RT branding splash");
     play_boot_flash_screen();

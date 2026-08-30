@@ -63,9 +63,9 @@ mk_task_handle_t KernelManager::spawn(const char* name, uint8_t prio, size_t sta
 }
 
 void KernelManager::rollback() {
-    if (cli_) { mk_task_delete(cli_); cli_ = nullptr; }
-    if (sys_) { mk_task_delete(sys_); sys_ = nullptr; }
-    if (gui_) { mk_task_delete(gui_); gui_ = nullptr; }
+    if (cli_) { mk_watchdog_deregister("CLI"); mk_task_delete(cli_); cli_ = nullptr; }
+    if (sys_) { mk_watchdog_deregister("SYSTEM"); mk_task_delete(sys_); sys_ = nullptr; }
+    if (gui_) { mk_watchdog_deregister("GUI"); mk_task_delete(gui_); gui_ = nullptr; }
 }
 
 bool KernelManager::startTasks(mk_task_entry_t gui, mk_task_entry_t sys, mk_task_entry_t cli) {

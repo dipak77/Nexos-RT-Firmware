@@ -272,7 +272,7 @@ void DashboardScreen::create(lv_obj_t* parent){
     // === BOTTOM INFO ===
     fw_label = lv_label_create(root);
     lv_obj_align(fw_label, LV_ALIGN_BOTTOM_LEFT, 36, -22);
-    lv_label_set_text(fw_label, "FW v1.0.0");
+    lv_label_set_text(fw_label, "FW v1.2.0");
     lv_obj_set_style_text_color(fw_label, c(COLOR_TEXT_DIM), 0);
     lv_obj_set_style_text_font(fw_label, &lv_font_montserrat_10, 0);
     

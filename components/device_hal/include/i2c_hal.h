@@ -1,6 +1,6 @@
 #pragma once
 #include "common/result.h"
-#include "driver/i2c.h"
+#include "driver/i2c_master.h"
 #include "board/board_config.h"
 
 namespace smart_device {
@@ -12,10 +12,11 @@ public:
     Result<void> initialize(const board::BoardConfig& cfg);
     Result<void> scan();
     bool is_initialized() const { return initialized_; }
-    i2c_port_t port() const { return (i2c_port_t)port_; }
+    int port() const { return port_; }
 private:
     bool initialized_{false};
     int port_{0};
+    i2c_master_bus_handle_t bus_{nullptr};
 };
 
 } // namespace hal

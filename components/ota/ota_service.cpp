@@ -48,7 +48,7 @@ Result<void> OtaService::check_and_update(const std::string& url, const std::str
         http_cfg.skip_cert_common_name_check = false;
     } else {
         http_cfg.skip_cert_common_name_check = false; // still verify via global CA store if cert_pem empty but IDF may bundle; don't auto-skip
-        http_cfg.use_global_ca_store = true;
+        http_cfg.use_global_ca_store = false;
         http_cfg.crt_bundle_attach = esp_crt_bundle_attach;
     }
 
@@ -78,11 +78,8 @@ struct OtaTaskCtx { std::string url; std::string cert; };
 void OtaService::ota_task_entry(void* arg){
     auto* ctx = static_cast<OtaTaskCtx*>(arg);
     mk_watchdog_register("OTA", 30000, nullptr);
-#if MK_NATIVE_KERNEL
-    ESP_LOGI(TAG, "OTA task running on core %d [NATIVE]", mk_port_get_core_id());
-#else
-    ESP_LOGI(TAG, "OTA task running on core %d", xPortGetCoreID());
-#endif
+    ESP_LOGI(TAG, "OTA task running on core %d%s", mk_current_core(),
+             MK_NATIVE_KERNEL ? " [NATIVE]" : "");
     auto& svc = OtaService::instance();
     svc.check_and_update(ctx->url, ctx->cert);
     mk_watchdog_deregister("OTA");

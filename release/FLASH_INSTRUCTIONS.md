@@ -1,6 +1,6 @@
 # ⚡ Hardware Flash & Quick Setup Guide (GC9A01 7-Pin Module)
 
-Complete guide to flashing and running the **Smart Device Firmware v1.0.0** onto your **ESP32-S3** with the **GC9A01 7-Pin 240x240 Round Display**.
+Complete guide to flashing and running the **Smart Device Firmware v1.2.0** onto your **ESP32-S3** with the **GC9A01 7-Pin 240x240 Round Display**.
 
 ---
 
@@ -28,14 +28,14 @@ Connect the 7 pins of your round GC9A01 module to the ESP32-S3 board as shown be
 
 ## 📦 Flash Binary Files & Memory Map
 
-Target Chip: **ESP32-S3** (8MB / 16MB Quad/Octal SPI Flash)
+Target Chip: **ESP32-S3-WROOM-1 N8R8** (8 MB flash, 8 MB PSRAM)
 
 | Binary File | Flash Offset | Description |
 |---|---|---|
 | **`firmware_all_in_one.bin`** | **`0x0000`** | **Single merged binary (Contains Bootloader + Partitions + App)** |
 | `bootloader.bin` | `0x0000` | ESP32-S3 2nd Stage Bootloader |
 | `partition-table.bin` | `0x8000` | Partition Table Map |
-| `smart_device_firmware.bin` | `0x10000` | Native Xtensa Application Binary (GC9A01 Driver) |
+| `smart_device_firmware.bin` | `0x20000` | OTA slot 0 application binary (GC9A01 driver) |
 
 ---
 
@@ -67,14 +67,13 @@ powershell -ExecutionPolicy Bypass -File release/flash_device.ps1 -Port COM5
 ## 🖥️ Live Hardware Console Output
 
 ```text
-================================================
- Smart Device Firmware - ESP32-S3 + GC9A01
- Native Xtensa Driver Active
-================================================
-[1/2] Initializing GC9A01 240x240 LCD...
-[2/2] Rendering Glassmorphic UI on Round Screen...
-[DISPLAY] Circular Glassmorphism Dashboard Rendered on GC9A01 Screen!
-================================================
- HARDWARE RUNNING! Type 'help' in serial monitor
-================================================
+=========================================================
+ SMART DEVICE — Nexos-RT V1.2
+ GC9A01 HW SPI 2MHz  SCL=12 SDA=11 DC=10 CS=9 RST=14
+ TFT VER1.0 VCC=3V3 only (never USB 5V)
+=========================================================
+[DISPLAY] Adafruit GC9A01A hardware SPI begin at 2000000 Hz
+[DISPLAY] startup test RED -> GREEN -> BLUE -> BLACK
+[BOOT] Nexos-RT branding splash
+SYSTEM READY. Type help.
 ```

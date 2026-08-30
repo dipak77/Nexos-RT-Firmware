@@ -103,6 +103,7 @@ mk_status_t mk_task_delete(mk_task_handle_t task){
     if(!task) return MK_ERR_INVALID;
     mk_port_task_handle_t h = NULL;
     bool self = false;
+    mk_task_internal_t* victim = NULL;
     mk_port_enter_critical();
     for(int i=0;i<MK_CONFIG_MAX_TASKS;i++){
         if(&s_tasks[i].public_tcb == task){
@@ -111,16 +112,24 @@ mk_status_t mk_task_delete(mk_task_handle_t task){
                 return MK_ERR_BAD_STATE;
             }
             s_tasks[i].slot_state = SLOT_DELETING;
+            victim = &s_tasks[i];
             h = s_tasks[i].port_handle;
             self = (h != NULL && h == mk_port_task_self());
             s_tasks[i].public_tcb.state = MK_TASK_DELETED;
-            s_tasks[i].port_handle = NULL;
             if(s_task_count) s_task_count--;
-            s_tasks[i].slot_state = SLOT_FREE;
             mk_port_exit_critical();
             if(h){
                 mk_port_task_delete(h);
             }
+            // A self-delete never returns. Keep its slot as a tombstone rather
+            // than letting the other core reuse its TCB while it is exiting.
+            if (self) return MK_OK;
+            mk_port_enter_critical();
+            if (victim->slot_state == SLOT_DELETING && victim->port_handle == h) {
+                memset(victim, 0, sizeof(*victim));
+                victim->slot_state = SLOT_FREE;
+            }
+            mk_port_exit_critical();
             return MK_OK;
         }
     }
@@ -148,28 +157,51 @@ const char* mk_task_get_name(mk_task_handle_t task){
 }
 mk_task_state_t mk_task_get_state(mk_task_handle_t task){
     if(!task) return MK_TASK_SUSPENDED;
-    return task->state;
+    mk_task_state_t state = MK_TASK_SUSPENDED;
+    mk_port_enter_critical();
+    for(int i=0;i<MK_CONFIG_MAX_TASKS;i++){
+        if(&s_tasks[i].public_tcb == task && s_tasks[i].slot_state == SLOT_LIVE){
+            state = s_tasks[i].public_tcb.state;
+            break;
+        }
+    }
+    mk_port_exit_critical();
+    return state;
 }
 mk_status_t mk_task_get_info(mk_task_handle_t task, mk_task_info_t* info){
     if(!task || !info) return MK_ERR_INVALID;
     memset(info, 0, sizeof(*info));
     mk_port_enter_critical();
-    info->id = task->id;
-    strncpy(info->name, task->name ? task->name : "", sizeof(info->name)-1);
-    info->state = task->state;
-    info->priority = task->priority;
-    info->stack_size = task->stack_size;
     mk_port_task_handle_t h = NULL;
+    mk_task_internal_t* internal = NULL;
     for(int i=0;i<MK_CONFIG_MAX_TASKS;i++){
-        if(&s_tasks[i].public_tcb == task) { h = s_tasks[i].port_handle; break; }
+        if(&s_tasks[i].public_tcb == task && s_tasks[i].slot_state == SLOT_LIVE) {
+            internal = &s_tasks[i];
+            break;
+        }
     }
+    if (!internal) {
+        mk_port_exit_critical();
+        return MK_ERR_NOT_FOUND;
+    }
+    info->id = internal->public_tcb.id;
+    strncpy(info->name, internal->public_tcb.name ? internal->public_tcb.name : "", sizeof(info->name)-1);
+    info->state = internal->public_tcb.state;
+    info->priority = internal->public_tcb.priority;
+    info->stack_size = internal->public_tcb.stack_size;
+    h = internal->port_handle;
     mk_port_exit_critical();
     if(h){
         info->stack_high_watermark = mk_port_task_get_stack_watermark(h);
     }
     return MK_OK;
 }
-uint32_t mk_task_count(void){ return s_task_count; }
+uint32_t mk_task_count(void){
+    mk_port_enter_critical();
+    uint32_t count = s_task_count;
+    mk_port_exit_critical();
+    return count;
+}
 
 mk_status_t mk_task_suspend(mk_task_handle_t task){
     for(int i=0;i<MK_CONFIG_MAX_TASKS;i++){

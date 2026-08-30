@@ -1,15 +1,15 @@
 # Smart Device Firmware — Complete System Reference
 
-**Status:** live on hardware as of 2026-08-30  
-**Firmware version:** 1.0.0  
-**Product OS:** **Next OS** v0.8.0 (`mk_*` API) — the only application operating system  
-**Active build:** PlatformIO `[env:esp32s3_arduino]`  
-**UART:** Silicon Labs CP210x, **COM5**, 115200 baud  
+**Status:** live on hardware as of 2026-08-30
+**Firmware version:** 1.2.0
+**Product OS:** **Nexos-RT** v1.2.0 (`mk_*` API) — the only application operating system
+**Active build:** PlatformIO `[env:esp32s3_arduino]`
+**UART:** Silicon Labs CP210x, **COM5**, 115200 baud
 **MAC (this board):** `1c:db:d4:9c:1d:78`
 
-This file is the canonical description of the project: hardware, proven wiring, **Next OS**, boot flow, pin map, commands, and source layout. Older notes in `docs/hardware.md` and `README.md` that wire **CS → GPIO9** and **RST → GPIO14** are **superseded**. That RST mapping blanks this panel.
+This file is the canonical description of the project: hardware, corrected wiring, **Nexos-RT**, boot flow, pin map, commands, and source layout. The TFT VER1.0 module is a 3.3 V part; CS and RST are explicitly wired to GPIO9 and GPIO14.
 
-**Product policy:** Next OS is the only OS name. Dual-kernel switch language is withdrawn.
+**Product policy:** Nexos-RT is the only OS name. Dual-kernel switch language is withdrawn.
 
 ---
 
@@ -48,9 +48,9 @@ Circular smart-display firmware for:
 | PSRAM | 8 MB Octal SPI (GPIO35/36/37 reserved inside the module) |
 | Display | 1.28" round TFT VER1.0, **GC9A01**, 240×240, 4-wire SPI |
 | RGB LED | Addressable LED on **GPIO38** (v1.1; v1.0 used GPIO48) |
-| Product OS | **Next OS** v0.8.0 — only application OS |
+| Product OS | **Nexos-RT** v1.2.0 — only application OS |
 | Product GUI (IDF track) | LVGL 9.5 + glassmorphism dashboard |
-| Bring-up GUI (Arduino track, **what is flashed**) | Adafruit GC9A01A **software SPI** dashboard |
+| Bring-up GUI (Arduino track, **what is flashed**) | Adafruit GC9A01A hardware SPI dashboard at 2 MHz |
 
 Design goal: every application thread, sleep, mutex, queue, and timer goes through **Next OS** (`mk_*`). Product code does not name or select a second kernel. Wi-Fi / BLE / USB / OTA stay on the Espressif chip support package (ESP-IDF / Arduino-ESP32), which is a vendor driver runtime — not a product OS.
 
@@ -82,8 +82,8 @@ Back silk:
 - `IC: GC9A01`
 - Header marked **SPI**
 - Pin order from VCC toward RST: **`VCC GND SCL SDA DC CS RST`**
-- Chinese note at R8: **R8 is a CS pull-down; this module may leave CS and RST unconnected**
-- **No BLK pin.** Backlight LED is tied to VCC. Feed **5 V** or the glass stays dim/dark while the MCU still runs.
+- Some revisions fit an optional CS resistor, but the reliable wiring drives CS and RST explicitly.
+- **No BLK pin.** Backlight LED is tied to VCC. Feed the module **3.3 V**, never USB 5 V.
 
 `SCL` / `SDA` on this PCB are **SPI CLK and SPI MOSI**, not I2C. Proof: extra **DC** and **CS** pins exist only on SPI panels.
 
@@ -144,23 +144,23 @@ Chip datasheet native SPI2 / FSPI IOMUX (matches J1 silk 10–14):
 | 12 | FSPICLK | CLK / display SCL |
 | 10 | FSPICS0 | DC (command/data) |
 | 13 | FSPIQ | unused (write-only panel) |
-| 9 | FSPIHD | leave open (CS) |
-| 14 | FSPIWP | leave open (RST) |
+| 9 | FSPIHD | LCD CS |
+| 14 | FSPIWP | LCD RST |
 
 Power options (mutually exclusive): USB-to-UART and/or ESP USB; **5V + G**; or **3V3 + G**.
 
 ---
 
-## 4. Working display wiring (proven)
+## 4. Correct display wiring
 
-This is the map that produced pixels after the USB-end rewire. Do not use the antenna-end `3V3` cluster.
+Use the signal pins near the USB end, plus either DevKit `3V3` pin for display VCC. The USB `5V` pin is not a valid supply for this TFT module.
 
 ### 4.1 Desk orientation (same as the working photo)
 
 - Metal can / antenna = **left**
 - Two USB sockets = **right**
 - Display sits **below** the board
-- Use the **bottom** row of pins (J1). That row has `3V3` at the antenna and `5V` `G` at the UART USB.
+- Use the **bottom** row of pins (J1). It has `3V3` at the antenna and the LCD signal GPIOs near the UART USB.
 
 Do **not** use the top row (`TX` `RX` `21`). Silk `21` there is GPIO21.
 
@@ -171,42 +171,43 @@ Start at the hole **closest to the UART socket** and walk toward the antenna:
 | Count from UART | Silk | Display wire |
 |---|---|---|
 | 1 | **G** | **GND** |
-| 2 | **5V** | **VCC** |
-| 3 | **14** | **empty** |
+| 2 | **5V** | **empty; never TFT VCC** |
+| 3 | **14** | **RST** |
 | 4 | **13** | **empty** |
 | 5 | **12** | **SCL** |
 | 6 | **11** | **SDA** |
 | 7 | **10** | **DC** |
-| 8 | **9** | **empty** |
+| 8 | **9** | **CS** |
+| 21 or 22 | **3V3** | **VCC** |
 
 ```
 antenna (left)                                    UART USB (right)
 3V3 …  9   10   11   12   13   14   5V   G
-           │    │    │                   │    │
-           DC   SDA  SCL                 VCC  GND
+ │      │    │    │    │          │          │
+ VCC    CS   DC   SDA  SCL        RST        GND
 ```
 
-### 4.3 Round PCB — five wires only
+### 4.3 Round PCB — seven wires
 
 | Display silk | ESP silk | Notes |
 |---|---|---|
-| **VCC** | **5V** | Backlight is on VCC. `3V3` looks like a dim blue disc. |
-| **GND** | **G** | The `G` next to `5V`, USB corner. |
+| **VCC** | **3V3** | 3.3 V module supply; never USB 5 V. |
+| **GND** | **G** | Common ground. |
 | **SCL** | **12** | SPI clock |
 | **SDA** | **11** | SPI MOSI. Not I2C. |
 | **DC** | **10** | Command / data |
-| **CS** | **no wire** | R8 holds CS low. Driving GPIO9 HIGH deselects the panel. |
-| **RST** | **no wire** | GPIO14 next to 5V/G; driving it holds the GC9A01 in reset (black glass). |
+| **CS** | **9** | Active-low chip select, driven for every transaction. |
+| **RST** | **14** | Active-low reset, pulsed during initialization. |
 
 ### 4.4 Breadboard rule
 
 The DevKit sits in the breadboard. Each ESP pin is common only with the **other holes in that same 5-hole row**.
 
 - Plug each Dupont in the **same row** as the counted pin.
-- Do not use the long red/blue power rails unless you have verified they are tied to `5V`/`G`.
+- Do not use the long red/blue power rails unless you have verified they are tied to `3V3`/`G`.
 - One row off = firmware still runs (RGB LED / serial alive), glass stays flat blue.
 
-Unplug USB before moving 5 V. Do not hot-swap VCC.
+Unplug USB before moving VCC. Do not hot-swap display power.
 
 ---
 
@@ -221,13 +222,10 @@ File: `src/main.cpp`
 | MOSI | `TFT_MOSI` | 11 |
 | SCLK | `TFT_SCLK` | 12 |
 | DC | `TFT_DC` | 10 |
-| CS | `TFT_CS` | **-1** (not driven) |
-| RST | `TFT_RST` | **-1** (not driven) |
-| GPIO9 | `pinMode(9, INPUT)` | high-Z |
-| GPIO14 | `pinMode(14, INPUT)` | high-Z |
+| CS | `TFT_CS` | **9** |
+| RST | `TFT_RST` | **14** |
 
-Driver: `Adafruit_GC9A01A tft(CS, DC, MOSI, SCLK, RST, MISO)` — **software SPI**.  
-The hardware-SPI constructor `Adafruit_GC9A01A(&SPI, dc, cs, rst)` re-inits SPI to ESP32-S3 default pins and blanks this panel.
+Driver: `Adafruit_GC9A01A(&SPI, DC, CS, RST)` — hardware FSPI at **2 MHz**. The firmware explicitly binds SCLK 12 and MOSI 11 before calling the driver.
 
 ### 5.2 IDF product track (not the image currently on the chip)
 
@@ -239,12 +237,12 @@ File: `components/board/include/board_pins.h`
 | SCLK | `LCD_PIN_SCLK` | 12 |
 | DC | `LCD_PIN_DC` | 10 |
 | CS | `LCD_PIN_CS` | 9 (driver still toggles CS if this stays 9) |
-| RST | `LCD_PIN_RST` | -1 |
+| RST | `LCD_PIN_RST` | 14 |
 | BL | `LCD_PIN_BL` | -1 |
 | Pixel clock | `LCD_PIXEL_CLOCK_HZ` | 2 MHz |
 | I2C expansion SDA/SCL | `I2C_EXP_SDA` / `I2C_EXP_SCL` | 16 / 17 (**not** the LCD) |
 
-Hardware on the desk must still leave **CS and RST unplugged** even if the IDF driver drives GPIO9: R8 already selects the chip. Do not jumper RST to 14.
+Hardware uses the same CS=9 and RST=14 wiring for both build tracks.
 
 ---
 
@@ -253,14 +251,12 @@ Hardware on the desk must still leave **CS and RST unplugged** even if the IDF d
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| Dim / flat blue glass, MCU LED on | VCC on J1 `3V3` (antenna end) | Move VCC to USB-end silk `5V` |
-| Completely black | LCD RST on GPIO14 (active-low, glitches low at power-up ~60 µs, or held low) | Leave RST open; firmware `RST = -1` |
-| Backlight on, no pixels / snow | Duponts on antenna-end J1 (3V3/RST/GPIO4…) while firmware bit-bangs 10/11/12 | Move SCL/SDA/DC to silk 12/11/10 next to 5V/G |
-| Panel selected then dropped | Firmware driving GPIO9 as CS HIGH | `TFT_CS = -1`, CS header open |
-| Adafruit HW SPI, blank | `Adafruit_GC9A01A(&SPI, …)` remaps pins | Software-SPI constructor |
-| GPIO21 used as “5V” | J3 silk `21` is GPIO21 | Only J1 silk `5V` is 5 V |
+| Backlight on, no pixels / snow | 5 V over-voltage, missing CS/RST, or wrong SPI row | Power-cycle at 3.3 V and verify all seven connections |
+| Completely black | RST held low or controller damaged | Verify GPIO14 reaches RST and pulses high-low-high |
+| No GRAM writes | CS floating or wrong GPIO | Connect CS directly to GPIO9 |
+| GPIO21 used as power | J3 silk `21` is GPIO21 | Use a J1 `3V3` pin for VCC |
 
-GPIO9–14 are **not** strapping pins. They **do** have a short low glitch at power-up (chip datasheet Table 2-2). That is lethal if RST is tied to GPIO14.
+GPIO9–14 are **not** strapping pins. The initialization sequence deliberately resets the LCD after GPIO setup, so a normal power-up transition on GPIO14 is harmless.
 
 ---
 
@@ -275,7 +271,7 @@ GPIO9–14 are **not** strapping pins. They **do** have a short low glitch at po
                 |  app includes mk.h only
                 v
 +------------------------------------------------------------------+
-|  Next OS  v0.8.0                                                 |
+|  Nexos-RT v1.2.0                                                |
 |  mk_init / mk_task_create_ext / mk_sleep_ms / mk_start           |
 |  mutex, semaphore, queue, event, timer, memory pool              |
 +------------------------------------------------------------------+
@@ -302,31 +298,31 @@ APPLICATION
       EventBus
         HAL (SPI, I2C, GPIO, USB)
           BoardConfig
-            Next OS (mk_*) + ESP-IDF chip support
+            Nexos-RT (mk_*) + ESP-IDF chip support
 ```
 
 Core split:
 
-- **Core 0:** chip support (Wi-Fi, BLE, lwIP), SysMon, CLI
-- **Core 1:** GUI (Next OS affinity 1)
+- **Core 0:** chip support (Wi-Fi, BLE, lwIP)
+- **Core 1:** GUI, SysMon and CLI (Nexos-RT affinity 1)
 
 There is no second product kernel. Application tasks are created only with `mk_task_create_ext`.
 
 ---
 
-## 8. Next OS
+## 8. Nexos-RT
 
-**Name:** Next OS  
-**API prefix:** `mk_*`  
-**Version:** 0.8.0 (`MK_CONFIG_VERSION_STRING`)  
-**Source:** `components/microkernel/`  
-**Dashboard chip:** **Next OS** (the former “Microkernel” label)
+**Name:** Nexos-RT
+**API prefix:** `mk_*`
+**Version:** 1.2.0 (`MK_CONFIG_VERSION_STRING`)
+**Source:** `components/microkernel/`
+**Dashboard chip:** **Nexos-RT**
 
 ### 8.1 What it is
 
-Next OS is the product operating system: a C API (`mk_*`) plus C++ RAII (`mk_cpp.hpp`). Application code includes `mk.h` only. Tasks, sleep, IPC, timers, and pools all go through this API.
+Nexos-RT is the product operating system: a C API (`mk_*`) plus C++ RAII (`mk_cpp.hpp`). Application code includes `mk.h` only. Tasks, sleep, IPC, timers, and pools all go through this API.
 
-Product policy: **Next OS is the only OS.** There is no user-facing kernel switch.
+Product policy: **Nexos-RT is the only OS.** There is no user-facing kernel switch.
 
 ### 8.2 Tree
 
@@ -349,7 +345,7 @@ IDF builds it as component `microkernel`.
 
 | Macro | Value |
 |---|---|
-| Version | 0.8.0 |
+| Version | 1.2.0 |
 | Tick | 1000 Hz |
 | Max tasks | 16 |
 | Max priorities | 8 (1 = idle … 7 = highest) |
@@ -371,7 +367,7 @@ Priority names (higher number = higher priority):
 | `MK_PRIO_COMMAND` | 6 | CLI |
 | `MK_PRIO_GUI` | 7 | display / LVGL |
 
-On the ESP32-S3 port, Next OS task priority `N` is mapped to vendor-runtime priority `8 + N` (GUI 7 → 15), capped at the platform maximum.
+On the ESP32-S3 port, Nexos-RT task priority `N` is mapped to vendor-runtime priority `8 + N` (GUI 7 → 15), capped at the platform maximum.
 
 Stacks (bytes, ESP-IDF `xTaskCreate` units):
 
@@ -423,7 +419,7 @@ Self-delete of a Next OS task must not double-free the TCB. Entry and argument a
 
 ### 8.6 ESP32-S3 port (not a second OS)
 
-The Espressif Arduino / ESP-IDF package on this chip still supplies Wi-Fi, BLE, USB, and flash drivers. Next OS is the only OS the **application** is written to. That vendor package is **not** offered as a product kernel, is **not** named on the dashboard, and is **not** a `switch_kernel` target.
+The Espressif Arduino / ESP-IDF package on this chip still supplies Wi-Fi, BLE, USB, and flash drivers. Nexos-RT is the only OS the **application** is written to. That vendor package is **not** offered as a product kernel, is **not** named on the dashboard, and is **not** a `switch_kernel` target.
 
 A native Next OS context-switch port (`arch/esp32s3/mk_context.S`) is the v1.0 goal. Until then, Next OS services still ride the chip support package internally. That is an implementation detail of the ESP32-S3 port, not a dual-OS product.
 
@@ -431,7 +427,7 @@ A native Next OS context-switch port (`arch/esp32s3/mk_context.S`) is the v1.0 g
 
 | Version | Intent |
 |---|---|
-| v0.8.0 (now) | Next OS API: tasks, PI mutex, IPC, timers, pools, stats |
+| v1.2.0 (now) | Nexos-RT API: tasks, PI mutex, IPC, timers, pools, stats |
 | v0.9 | 72 h stress, fault injection, deadlock detect |
 | v1.0 | Freeze API, native Xtensa `mk_context.S` (window spill, PS/SAR, interrupt vs task stack) |
 
@@ -443,13 +439,13 @@ A native Next OS context-switch port (`arch/esp32s3/mk_context.S`) is the v1.0 g
 |---|---|---|
 | Env | `esp32s3_arduino` (PlatformIO default) | `esp32s3_idf` / `idf.py` |
 | Entry | `main/arduino_main.cpp` includes `src/kernel_manager.cpp` + `src/main.cpp` | `main/app_main.cpp` |
-| Display | Adafruit GC9A01A software SPI | `esp_lcd` + `esp_lcd_gc9a01` + LVGL 9.5 |
+| Display | Adafruit GC9A01A hardware SPI at 2 MHz | `esp_lcd` + `esp_lcd_gc9a01` + LVGL 9.5 |
 | GUI | GFX dashboard, 1 Hz refresh | `lvgl_adapter` flush → `esp_lcd_panel_draw_bitmap` |
 | Commands | small Serial parser | `CommandService` (UART / USB CDC / BLE / Wi-Fi) |
 | Wi-Fi / BLE / OTA | not in the Arduino image | full services |
-| OS | **Next OS** only | **Next OS** only |
+| OS | **Nexos-RT** only | **Nexos-RT** only |
 
-Arduino is the path that compiled, flashed, and painted the round TFT on this PC. The IDF image is the intended product (LVGL, OTA, connectivity) once that toolchain is used.
+Arduino is the currently flashed bring-up path. Its runtime is verified over COM5; the corrected 3.3 V seven-wire display path must pass the startup red/green/blue test before the dashboard is considered hardware-verified.
 
 ---
 
@@ -463,18 +459,19 @@ POWER ON
   PSRAM enabled
   setup()
     Serial 115200
-    Next OS init()            → mk_init v0.8.0
+    Nexos-RT init()           → mk_init v1.2.0
     display mutex
-    GPIO9/14 INPUT
-    tft.begin() software SPI, rotation 0, invert on
+    bind FSPI SCLK=12 MOSI=11
+    tft.begin() hardware SPI 2 MHz, CS=9, RST=14
+    red → green → blue → black panel test
     startTasks()
       mk GUI   core 1
       mk SysMon core 0
       mk CLI    core 0
       mk_start()
     "SYSTEM READY"
-  GUI: red → green → cyan → black dashboard
-  loop() idles; work is in Next OS tasks
+  GUI: branded splash → dashboard
+  loop() idles; work is in Nexos-RT tasks
 ```
 
 ### 13.2 IDF product
@@ -503,11 +500,11 @@ NVS / time / diagnostics / OTA failures must not abort before the first frame (t
 | Next OS name | Entry | mk prio | Core | Stack |
 |---|---|---|---|---|
 | GUI | `gui_task` | 7 | 1 | 8192 |
-| SYSTEM | `sys_monitor_task` | 3 | 0 | 4096 |
-| CLI | `cli_task` | 6 | 0 | 4096 |
+| SYSTEM | `sys_monitor_task` | 3 | 1 | 4096 |
+| CLI | `cli_task` | 6 | 1 | 4096 |
 
 - GUI: color bars once, then dashboard every 1 s (Next OS chip, heap, uptime)
-- SysMon: `g_seconds_counter++`, log every 5 s
+- SysMon: publishes atomic uptime seconds and logs every 5 s
 - CLI: Serial line parser
 
 ### IDF product (when built)
@@ -525,18 +522,18 @@ GUI loop: `lv_timer_handler` then `mk_sleep_ms` with a **minimum 5 ms** delay so
 
 ## 12. Display pipeline
 
-### Arduino (working)
+### Arduino
 
 ```
 gui_task
-  Adafruit_GC9A01A software SPI
+  Adafruit_GC9A01A hardware FSPI at 2 MHz
     GPIO12 CLK, GPIO11 MOSI, GPIO10 DC
-    CS/RST not driven
+    GPIO9 CS, GPIO14 RST
   fillScreen / drawCircle / print
   invertDisplay(true)  (this GC9A01 module)
 ```
 
-SPI is bit-banged so the pin numbers in the constructor are the pins that actually toggle. Hardware SPI on this Adafruit port re-binds to S3 defaults and misses 11/12.
+The ESP32-S3 Arduino variant's native FSPI defaults are 12/11/13/10. The firmware explicitly calls `SPI.begin(12, -1, 11, -1)` so the mapping remains deterministic.
 
 ### IDF
 
@@ -670,18 +667,18 @@ Web:
 - Schematic: https://dl.espressif.com/dl/schematics/SCH_ESP32-S3-DevKitC-1_V1.1_20221130.pdf
 - ESP32-S3 series datasheet: https://www.espressif.com/sites/default/files/documentation/esp32-s3_datasheet_en.pdf
 
-Repo topic docs: `docs/architecture.md`, `docs/architecture_microkernel.md` (Next OS), `docs/hardware.md` (CS/RST rows there are outdated), `docs/commands.md`, `docs/ota.md`, `docs/device_mapping_and_state.md`.
+Repo topic docs: `docs/architecture.md`, `docs/architecture_microkernel.md` (Nexos-RT), `docs/hardware.md`, `docs/commands.md`, `docs/ota.md`, `docs/device_mapping_and_state.md`.
 
 ---
 
 ## 17. Known pitfalls
 
-1. **Antenna-end Duponts.** Firmware talks to silk 10/11/12/5V/G. Wires next to the metal can are 3V3/EN/GPIO4.
-2. **RST on 14.** Black screen. Leave open.
-3. **CS driven high.** Deselects a panel whose R8 already holds CS low. Leave CS open on this module.
-4. **VCC on 3V3.** Backlight too weak.
-5. **J3 silk `21` ≠ 5 V.**
-6. **Adafruit hardware SPI** on ESP32-S3.
+1. **TFT VCC on 5 V.** This TFT VER1.0 module is specified for 3.3 V and may be damaged by 5 V.
+2. **RST floating.** Connect RST directly to GPIO14.
+3. **CS floating.** Connect CS directly to GPIO9.
+4. **SCL/SDA treated as I2C.** They are SPI SCLK/MOSI on GPIO12/11.
+5. **J3 silk `21` is not a supply pin.**
+6. **SPI signal wires one breadboard row off.**
 7. **Octal PSRAM GPIO35–37** must stay unused.
 8. **Download-mode serial open.** RTS/DTR can leave `boot:0x0 DOWNLOAD(USB/UART0)`. Reset with IO0 high.
 9. **Wrong breadboard strip.** Each ESP pin is only common with its own 5-hole row. One row off → snow or blank glass while the MCU still runs.
@@ -694,16 +691,17 @@ Repo topic docs: `docs/architecture.md`, `docs/architecture_microkernel.md` (Nex
 ```
 ESP32-S3-DevKitC-1 v1.1  WROOM-1 N8R8
 Display 1.28" GC9A01 SPI  (SCL/SDA = CLK/MOSI)
-OS: Next OS v0.8.0  (only product kernel)
+OS: Nexos-RT v1.2.0  (only product kernel)
 
 USB-end, bottom row, from UART:
   G  → GND
-  5V → VCC
-  14 empty    13 empty
+  5V empty
+  14 → RST    13 empty
   12 → SCL
   11 → SDA
   10 → DC
-  CS unplugged    RST unplugged
+  9  → CS
+  3V3 → VCC  (antenna-end J1 supply)
 
 Flash:   pio run -e esp32s3_arduino -t upload --upload-port COM5
 ```
