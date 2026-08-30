@@ -1,72 +1,48 @@
-# Next OS
+# Nexos-RT Microkernel Layer
 
-**Product OS name:** Next OS  
-**API:** `mk_*` (`components/microkernel/`)  
-**Version:** 0.8.0  
+**Product OS Name:** **Nexos-RT**  
+**API:** `mk_*` (`components/microkernel/include/mk.h`)  
+**Version:** **1.1.0** (Production Hardened)  
 
-Next OS is the **only** application operating system on this product. There is no second kernel and no dual-kernel switch.
+Nexos-RT is the **sole application operating system interface** on this product. Dual-kernel switching has been eliminated; the application layer contains zero direct FreeRTOS references.
 
-Application, SDK, GUI, and services include `mk.h` only. They create threads with `mk_task_create_ext`, sleep with `mk_sleep_ms`, and use Next OS mutex / queue / event / timer / pool primitives.
+Application code, GUI engines, CLI shells, and platform services include `mk.h` only. They manage task lifecycles with `mk_task_create_ext`, yield with `mk_yield` / `mk_sleep_ms`, query the active core with `mk_current_core`, and use Nexos-RT mutex / semaphore / queue / event / timer / memory pool primitives.
 
-## Layering
-
-```
-Product App (mk_* only)
-  -> SDK (mk_* only)
-    -> Next OS  (scheduler model, tasks, PI mutex, IPC, timers, pools)
-      -> ESP32-S3 chip support package (ESP-IDF / Arduino-ESP32 drivers)
-        -> ESP32-S3-WROOM-1-N8R8
-```
-
-The Espressif package remains the **chip support** for Wi-Fi, NimBLE, USB, and flash. It is not a product OS and is not selectable.
-
-## Core affinity
-
-- Core 0: chip support (Wi-Fi, BLE, TCP/IP) + connectivity supervisor
-- Core 1: Next OS application tasks
-
-| Task | Priority | Core |
-|---|---|---|
-| GUI | 7 | 1 |
-| COMMAND | 6 | 1 |
-| CONNECTIVITY supervisor | 5 | 0 |
-| TIME | 4 | 1 |
-| DIAGNOSTICS | 3 | 1 |
-
-## Primitives
-
-- Preemptive priority tasks (`mk_task_create_ext`)
-- Priority-inheritance mutexes
-- Semaphores, queues (including ISR send), event groups
-- Software timers and monotonic clock
-- Fixed memory pools (no malloc on hot path)
-- Stack watermark and kernel stats
-- `mk.h` rejects application includes of a vendor kernel header unless the port translation unit defines the shim allow-flag
-
-C++ RAII: `mk::Mutex`, `mk::LockGuard`, `mk::Queue`, `mk::Thread` in `mk_cpp.hpp`.
-
-## LVGL
-
-`components/lvgl_adapter/` — Next OS mutex + 1 ms tick, `flush_cb` → `esp_lcd_panel_draw_bitmap`. No `esp_lvgl_port`. GUI loop: `lv_timer_handler()` then `mk_sleep_ms` (minimum 5 ms).
-
-## Console
+## Architectural Layering
 
 ```
-device> kernel status
-device> kernel tasks
-device> kernel stats
+Product Application & Services (mk_* only)
+  -> SDK & Domain Drivers (DisplayGuard, SystemController)
+    -> Nexos-RT Core (Scheduler, Slot Manager, PI Mutex, IPC, Timers, Memory Pools)
+      -> ESP32-S3 Chip Support Port (components/microkernel/arch/esp32s3/mk_chip_port.h)
+        -> Dual-Core Xtensa LX7 @ 240 MHz (342KB SRAM, 8MB PSRAM)
 ```
 
-`switch_kernel` is not a product command.
+## Core Affinity & Task Map
 
-## Roadmap
+- **Core 1 (Application Domain):** Dedicated to user experience and UI responsiveness.
+- **Core 0 (System Domain):** Dedicated to network stacks (Wi-Fi, NimBLE, LwIP) and hardware interrupts.
 
-| Version | Intent |
-|---|---|
-| v0.8.0 | Next OS API live on device |
-| v0.9 | 72 h stress, fault injection |
-| v1.0 | Native Xtensa `mk_context.S` (window spill, PS/SAR) |
+| Task | Priority (`mk_prio`) | Port Priority | Core Affinity | Stack Size | Watchdog Timeout |
+|---|---|---|---|---|---|
+| **GUI** | 7 (`MK_PRIO_GUI`) | 16 | Core 1 | 8192 B | 4000 ms |
+| **SYSTEM** | 3 (`MK_PRIO_DIAGNOSTICS`) | 12 | Core 1 | 4096 B | 4000 ms |
+| **CLI / CMD** | 6 (`MK_PRIO_COMMAND`) | 5 | Core 1 | 4096 B | 4000 ms |
+| **CONNECTIVITY** | 5 (`MK_PRIO_CONNECTIVITY`) | 8 | Core 0 | 4096 B | 6000 ms |
 
-Keep `arch/` portable for future RISC-V / Cortex-M ports.
+## Microkernel Primitives & Capabilities
 
-This documentation revision is **product spec only**. Removing leftover dual-kernel strings from the flashed binary is a later firmware change.
+1. **Task Registry & Lifecycle**:
+   - `SLOT_FREE` -> `SLOT_RESERVED` -> `SLOT_LIVE` -> `SLOT_DELETING`.
+   - `portMUX_TYPE s_task_lock` critical sections ensure multi-core SMP thread safety.
+   - Launch gate `EventGroup` (`s_start_gate`) prevents task pre-execution until `mk_start()`.
+2. **Synchronization & Concurrency**:
+   - Priority-inheritance mutexes (`mk_mutex_t*`) prevent priority inversion during display rendering.
+   - Counting semaphores, message queues (including ISR safe `mk_queue_send_isr`), and event groups.
+3. **Diagnostics & Stall Detection**:
+   - Handle-based watchdog feeding (`mk_watchdog_feed_self()`).
+   - 4-second timeout checking generating `[!!] STALL` warnings if threads become unresponsive.
+   - Internal SRAM monitoring (`heap_caps_get_free_size(MALLOC_CAP_INTERNAL)`) preventing 8MB PSRAM from masking internal heap exhaustion.
+4. **Header Barrier**:
+   - `mk.h` issues `#error` at compile-time if vendor RTOS headers are included in application units without `MK_ALLOW_CHIP_PORT`.
+

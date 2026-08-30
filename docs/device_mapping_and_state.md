@@ -1,45 +1,34 @@
-# Device Mapping & State Reference
+# Device Mapping & State Reference — Nexos-RT v1.1
 
-> **Superseded as the live spec.** Use `docs/COMPLETE_SYSTEM_REFERENCE.md`.
-> Product OS is **Next OS** only. CS and RST stay unplugged; VCC is USB-end `5V`.
->
-> The notes below are a bring-up log (including the old CS=9 / RST=14 experiment).
-> Do not treat them as current wiring or OS policy.
+> **Operating System:** **Nexos-RT v1.1** (Production Hardened Standalone Microkernel Runtime).
+> **Canonical Reference:** See `docs/COMPLETE_SYSTEM_REFERENCE.md`.
+> **Verified Wiring:** 5-wire direct plug-in on Header J1 (16, 17, 18, 21, 22). CS and RST stay **unconnected/open**; VCC is **5V** (J1-21).
 
-> Generated during bring-up of the GC9A01 240x240 round display on ESP32-S3.
-
-## 1. Hardware identity (from esptool + photos)
+## 1. Hardware Identity
 
 - **MCU board:** ESP32-S3-DevKitC-1 **v1.1** (Espressif)
-- **Module:** ESP32-S3-WROOM-1 **N8R8** (silk `MCN8R8`) — 8 MB flash, 8 MB octal PSRAM
-- **USB bridge:** Silicon Labs CP210x (VID:PID `10C4:EA60`), **COM5** on this PC
-- **Display:** 1.28" round TFT, **240x240**, driver **GC9A01** (silk on back: `1.28" TFT VER1.0 IC: GC9A01 240*240`)
-- **Display quirk (from module silk):** *"CS and RST may be left open (R8 pulls CS low)"*.
-  The panel has **NO BLK pin** — backlight LED is tied to VCC. So VCC must be **5V** or
-  the backlight stays dark even though the MCU runs.
-- **esptool read:** `ESP32-S3 (QFN56) rev v0.2, Wi-Fi BT5 LE, Dual Core + LP Core, 240MHz,
-  Embedded PSRAM 8MB, 40MHz crystal, USB-Serial/JTAG, MAC 30:ed:a0:17:6b:7c`
+- **Module:** ESP32-S3-WROOM-1 **N8R8** (silk `MCN8R8`) — 8 MB flash, 8 MB octal PSRAM, 342 KB SRAM
+- **USB bridge:** Silicon Labs CP210x (VID:PID `10C4:EA60`) on UART0
+- **Display:** 1.28" round TFT, **240x240**, driver **GC9A01**
+- **Display quirk:** *"CS and RST may be left open (R8 pulls CS low)"*. Backlight is tied to VCC, requiring **5V**.
 
-## 2. Pin mapping (DISPLAY -> ESP32-S3) — CONFIRMED by user 2026-08-28
+## 2. Pin Mapping (Proven 5-Wire Setup on J1)
 
-Display header order on the blue board (read by user): `VCC GND SCL SDA DC CS RST`.
+Display header order: `VCC GND SCL SDA DC CS RST`.
 
-| Display pin | Function        | DevKit hole (silkscreen) | GPIO | Firmware constant | Notes |
-|-------------|-----------------|--------------------------|------|-------------------|-------|
-| VCC         | Power + backlight | `5V` hole (end of left header, next to GND) | — | — | **MUST be 5V.** 3V3 -> backlight dark. |
-| GND         | Ground          | any `GND` hole           | — | — | — |
-| SCL / CLK   | SPI clock       | hole `GPIO12`            | 12 | `PIN_SCLK = 12` | FSPI CLK |
-| SDA / DIN   | SPI MOSI        | hole `GPIO11`            | 11 | `PIN_MOSI = 11` | FSPI MOSI |
-| DC          | Data/Command    | hole `GPIO10`            | 10 | `PIN_DC   = 10` | any GPIO |
-| CS          | Chip select     | hole `GPIO9`             | 9  | `PIN_CS   = 9`  | any GPIO (module pulls down via R8) |
-| RST         | Reset           | hole `GPIO14` (next to 5V) | 14 | `PIN_RST = 14` | Active-low. Must be wired. A floating/wrong RST pin held the panel in reset during earlier bring-up. |
-| BL          | Backlight       | **LEFT OPEN**            | — | — | Tied to VCC internally. |
+| Display Pin | Function | Header J1 Pin | ESP32-S3 GPIO | Status / Wiring Rule |
+|---|---|---|---|---|
+| **VCC** | Power + Backlight | J1-21 (`5V`) | **5V** | Must be 5V (USB-end pin next to GND) |
+| **GND** | Ground | J1-22 (`G`) | **GND** | Ground |
+| **SCL / CLK** | SPI Clock | J1-18 (`12`) | **GPIO 12** | Direct connection |
+| **SDA / DIN** | SPI MOSI | J1-17 (`11`) | **GPIO 11** | Direct connection |
+| **DC** | Data/Command | J1-16 (`10`) | **GPIO 10** | Direct connection |
+| **CS** | Chip Select | *Open* | *Open* | **Unconnected** (R8 pulls CS low permanently) |
+| **RST** | Reset | *Open* | *Open* | **Unconnected** (Floating/open avoids GPIO14 power-up glitch) |
 
-All signal pins (9/10/11/12/14) are on the ESP32-S3 **left header** (USB at the bottom).
-GPIO11/12 are native FSPI MOSI/CLK. GPIO9 is CS (drive it; do not rely on R8 alone).
-
-### DevKitC-1 v1.1 left-header silkscreen (antenna/top -> USB/bottom)
+### Header J1 Silk Order (Antenna/Top -> USB/Bottom)
 `3V3, 3V3, RST, 4, 5, 6, 7, 15, 16, 17, 18, 8, 3, 46, 9, 10, 11, 12, 13, 14, 5V, G`
+
 
 GPIO 9/10/11/12/13/14 are the last six numbered holes above 5V. The previous listing
 (`3V3, RST, 4, 5, 6, 7, 15, 13, 12, ...`) was wrong and will wire SCL/SDA onto GPIO 16/17.

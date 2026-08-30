@@ -1,20 +1,19 @@
 # Changelog
 
 ## 1.1.0 - 2026-08-30
-- **Next OS only:** removed the dual-kernel switch from firmware. Application tasks spawn exclusively via `mk_task_create_ext`.
-- **Next OS v0.9.0:** watchdog heartbeats (GUI/SYSTEM/CLI), health text, heap warn, spawn failure handling, display mutex via `mk_mutex`.
-- Dashboard chip: **Next OS**. `switch_kernel` is rejected. Firmware 1.1.0.
+- **Nexos-RT Production Hardened:** Multi-core SMP spinlocks (`s_task_lock`), slot state machine (`SLOT_FREE`, `SLOT_RESERVED`, `SLOT_LIVE`, `SLOT_DELETING`), launch gate `EventGroup` (`s_start_gate`), and spawn failure rollback.
+- **Microkernel Isolation:** Zero vendor FreeRTOS symbols in application code; compile-time `#error` inclusion barrier in `mk.h`.
+- **Branding & UI:** Dedicated high-definition `NEXOS-RT` geometric boot visualizer with 5-stage progressive loading bar and glassmorphic circular dashboard.
+- **Concurrency & I/O:** Thread-safe memory pool (`mk_pool.c`), timer deletion hardening, non-blocking CLI byte stream parser, and `DisplayGuard` RAII timeout protection.
+- **Health & Diagnostics:** 4-second watchdog monitors, internal SRAM heap tracking (342 KB free), and safe health text buffer copying.
+- **Verified Hardware:** Proven 5-wire connection on Header J1 (16, 17, 18, 21, 22), CS/RST open.
+- **Smart Hydration Ready:** I2C expansion on GPIO 16/17 for sip tracking (IMU), water temperature, fuel gauge, and UV-C sterilization interlock.
 
 ## 1.0.1 - 2026-08-30 (documentation)
-- **Product OS named Next OS.** Dual-kernel language removed from the specification. Next OS (`mk_*`) is the only application OS.
-- Canonical spec: `docs/COMPLETE_SYSTEM_REFERENCE.md`. Architecture: `docs/architecture.md`, `docs/architecture_microkernel.md`.
-- Firmware binary is unchanged in this revision; leftover `switch_kernel` CLI is not part of the product spec.
+- Consolidated canonical specification in `docs/COMPLETE_SYSTEM_REFERENCE.md`.
+- Dual-kernel switching retired in favor of single standalone microkernel architecture.
 
 ## 1.0.0 - 2026-08-28
-- **Next OS v0.8.0**: Preemptive `mk_*` kernel with Priority Inheritance mutexes, mem pools, timers, and dual-core affinity (Core 1 App, Core 0 Platform).
-- **GC9A01 240x240 Round Display**: Direct LVGL 9.5 adapter with DMA double-buffering.
-- **Glassmorphism Circular GUI**: Premium dark theme with boot animations, top status pills, glow arc, system health chip, command feedback glass card, and IST-5:30 time cluster.
-- **Unified Command Engine**: Full UART/USB CLI with WiFi, BLE, SNTP, Display, Diagnostics, and Microkernel diagnostic commands.
-- **Desktop Simulator & Test Suite**: Added cross-platform Tkinter/CLI desktop simulator and automated unit test suite.
-- **Tooling & Setup**: Added `setup_env.ps1`, `build.ps1`, `flash.ps1`, `monitor.ps1`, `erase.ps1`, `release.ps1`, and `run_simulator.ps1`.
-- **Codebase Clean-Up**: Removed duplicate files and resolved all compilation and header dependency issues.
+- Initial bring-up of GC9A01 240x240 Round Display on ESP32-S3.
+- Desktop visual simulator, PlatformIO build tools, and automated Python test suite.
+

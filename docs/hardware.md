@@ -26,16 +26,19 @@ No BLK pin. Backlight LED is powered from **VCC**. Use **5V on J1-21**. 3.3 V on
 
 I2C on this project (GPIO 16/17, or the old README 5/6) is **expansion for sensors/touch only**. Do not wire the LCD SDA/SCL there.
 
-## Wiring (native FSPI / SPI2)
+## Wiring (Proven 5-Wire Setup on J1)
 
-| Display silk | Meaning | J1 silk | GPIO |
-|---|---|---|---|
-| VCC | backlight + panel power | 21 | **5V** |
-| GND | ground | 22 | **G** |
-| SCL | SPI CLK | 12 | **12** |
-| SDA | SPI MOSI | 11 | **11** |
-| DC | data/command | 10 | **10** |
-| CS | chip select (active low, must toggle) | 9 | **9** |
-| RST | hardware reset | 14 | **14** |
+| Display silk | Meaning | J1 Pin | J1 silk | ESP32-S3 GPIO | Status / Wiring Rule |
+|---|---|---|---|---|---|
+| **VCC** | Backlight + panel power | 21 | **5V** | **5V** | Direct wire (USB-end pin next to G) |
+| **GND** | Ground | 22 | **G** | **GND** | Direct wire |
+| **SCL** | SPI Clock | 18 | **12** | **GPIO 12** | Direct wire |
+| **SDA** | SPI MOSI | 17 | **11** | **GPIO 11** | Direct wire |
+| **DC** | Data / Command | 16 | **10** | **GPIO 10** | Direct wire |
+| **CS** | Chip Select | - | - | *Open* | **Unconnected** (R8 pulls CS low permanently) |
+| **RST** | Reset | - | - | *Open* | **Unconnected** (Avoids GPIO14 boot glitch holding panel in reset) |
 
-GPIO 13 is FSPI MISO and is not connected to this LCD (write-only).
+> [!NOTE]
+> GPIO 13 is FSPI MISO and is not connected to this LCD (write-only display pipeline).
+> I2C Expansion (GPIO 16/17) is reserved for external sensors (IMU, Temperature, Fuel Gauge).
+

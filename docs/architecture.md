@@ -1,41 +1,50 @@
-# Architecture
+# Nexos-RT Architecture Specification
 
-**OS:** Next OS (`mk_*`) — the only application operating system.
+**OS:** **Nexos-RT v1.1** (`mk_*`) — Production-grade runtime microkernel abstraction.
 
 ## Layering
 
 ```
-APPLICATION
+APPLICATION & USER INTERFACE
   -> Device Controller (SystemController)
-    -> GUI (LVGL 9.5)
-    -> Commands (Unified CommandService)
-    -> Services (WiFi, BLE, Time, OTA, Storage)
-      -> Event Bus
-        -> HAL (SPI, I2C, GPIO, USB)
-          -> Next OS
-            -> ESP32-S3 chip support (ESP-IDF / Arduino-ESP32 drivers)
+    -> GUI Engine (LVGL 9.5 / Adafruit GFX Circular Visualizer)
+    -> Interactive Console (Non-blocking UART0 Command Engine)
+    -> System Services (WiFi, BLE, Time SNTP, OTA, NVS Storage)
+      -> Unified Event Bus
+        -> HAL (SPI, I2C Expansion, GPIO, USB CDC)
+          -> Nexos-RT Microkernel Layer (mk_*)
+            -> ESP32-S3 Chip Support Port (mk_chip_port.h / task_port)
+              -> ESP32-S3-WROOM-1 Hardware (Xtensa LX7 @ 240MHz)
 ```
 
 ## Boot Sequence
 
-POWER ON -> Bootloader -> Next OS `mk_init` -> Board/HAL -> Logging -> Display GC9A01 -> LVGL -> Splash -> Command Engine -> WiFi -> BLE -> SNTP -> Diagnostics -> Dashboard
+1. **POWER ON & Hardware Reset** -> Bootloader -> Memory Partition Mapping
+2. **Nexos-RT Initialization (`mk_init`)**: Creates launch gate `EventGroup` (`s_start_gate`).
+3. **Hardware & Subsystems**: NVS storage init -> Display GPIO reset -> GC9A01 panel init.
+4. **Branding Splash**: High-definition geometric `NEXOS-RT` boot visualizer & 5-stage loading bar.
+5. **Task Creation**: `GUI` (Prio 7, Core 1), `SYSTEM` (Prio 3, Core 1), `CLI` (Prio 6, Core 1).
+6. **Kernel Start (`mk_start`)**: Opens launch gate (`NEXOS_START_BIT`), tasks transition to `RUNNING`.
+7. **Live Dashboard**: Real-time circular glassmorphism UI with active watchdog stall monitoring.
 
-## Tasks (Next OS)
+## Multi-Core Task Partitioning
 
-- GUI P7 core 1 — LVGL / dashboard
-- COMMAND P6 core 1 — console
-- CONNECTIVITY P5 core 0 — Wi-Fi supervisor
-- TIME P4 core 1 — SNTP
-- DIAGNOSTICS P3 core 1 — health monitor
+- **Core 1 (Application Domain):**
+  - `GUI` (Priority 16/20) — Real-time UI rendering & display frame serialization.
+  - `COMMAND` / `CLI` (Priority 5/20) — Non-blocking UART0 byte state machine.
+  - `SYSTEM` / `DIAGNOSTICS` (Priority 12/20) — Watchdog supervisor & health metrics.
+- **Core 0 (System & Radio Domain):**
+  - ESP-IDF Wi-Fi Station & LwIP TCP/IP stack.
+  - Apache NimBLE Bluetooth host task.
+  - Low-level interrupt handlers and USB CDC-ACM driver.
 
-Chip-support stacks (Wi-Fi, NimBLE, lwIP) stay on Core 0. They are vendor drivers, not a second product kernel.
+## Concurrency & Integrity
 
-## Event Driven
+- **Multi-Core SMP Spinlocks**: `portMUX_TYPE s_task_lock` protects task registry and slot states.
+- **Task Slot Lifecycle**: `SLOT_FREE` -> `SLOT_RESERVED` -> `SLOT_LIVE` -> `SLOT_DELETING`.
+- **Memory Safety**: Thread-safe memory pool (`mk_pool.c`) with mutex protection.
+- **Display Serialization**: `DisplayGuard` RAII wrapper with finite timeouts against deadlock.
+- **Heap Accounting**: Internal SRAM (`MALLOC_CAP_INTERNAL`) tracked for accurate health detection.
 
-WiFi event -> WIFI_CONNECTED -> EventBus -> AppState -> UI state -> GUI task -> Screen update
+See `docs/COMPLETE_SYSTEM_REFERENCE.md` for hardware pinouts and canonical reference.
 
-## Board Abstraction
-
-BoardConfig struct allows Board V1, V2, Mini, Industrial without rewriting app.
-
-See `docs/architecture_microkernel.md` for Next OS detail and `docs/COMPLETE_SYSTEM_REFERENCE.md` for hardware + wiring.
