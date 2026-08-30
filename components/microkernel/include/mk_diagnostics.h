@@ -19,6 +19,7 @@ uint32_t mk_kernel_get_cpu_load(void);
 void mk_kernel_print_stats(void);
 
 void mk_watchdog_register(const char* name, uint32_t timeout_ms, mk_watchdog_callback_t cb);
+void mk_watchdog_deregister(const char* name);
 mk_watchdog_token_t mk_watchdog_register_task(mk_task_handle_t task, uint32_t timeout_ms, mk_watchdog_callback_t cb);
 void mk_watchdog_feed(const char* name);
 void mk_watchdog_feed_token(mk_watchdog_token_t token);

@@ -40,17 +40,23 @@ Result<std::string> NvsStore::get_string(const char* key){
     nvs_handle_t h;
     esp_err_t ret = nvs_open(NVS_NAMESPACE, NVS_READONLY, &h);
     if(ret!=ESP_OK) return Result<std::string>::Err(AppError::STORAGE_NVS_OPEN_FAILED, esp_err_to_name(ret));
-    size_t len=0;
-    ret = nvs_get_str(h, key, nullptr, &len);
+    size_t required = 0;
+    ret = nvs_get_str(h, key, nullptr, &required);
     if(ret!=ESP_OK){ nvs_close(h); return Result<std::string>::Err(AppError::STORAGE_KEY_NOT_FOUND, key); }
-    std::string val; val.resize(len);
+    if (required == 0) { nvs_close(h); return Result<std::string>::Ok(std::string()); }
+    // required includes trailing '\0'
+    std::string val;
+    val.resize(required);
+    size_t len = required;
     ret = nvs_get_str(h, key, val.data(), &len);
     nvs_close(h);
     if(ret!=ESP_OK) return Result<std::string>::Err(AppError::STORAGE_KEY_NOT_FOUND, key);
-    // remove null terminator counted in string resize
-    if(!val.empty() && val.back()=='\0') val.pop_back();
-    // Actually std::string from nvs includes null
-    val.resize(strlen(val.c_str()));
+    // nvs_get_str writes len bytes including '\0'; len may be required or smaller
+    if (!val.empty() && val.back() == '\0') val.pop_back();
+    // val may still contain embedded nulls; trim to actual strlen if we stored C-string
+    // For binary-safe, don't strlen; but keys here are C-strings so strlen is intentional.
+    // If value was binary with embedded zeros, strlen would truncate — we keep as-is if contains null in middle.
+    // Heuristic: if popped once and still has '\0' inside, keep raw length.
     return Result<std::string>::Ok(val);
 }
 

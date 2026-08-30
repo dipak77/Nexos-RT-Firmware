@@ -14,9 +14,10 @@ idf_component_register(
         "memory/mk_pool.c"
         "arch/esp32s3/mk_arch.c"
         "arch/esp32s3/mk_port_shim.c"
-    INCLUDE_DIRS "include" "arch/esp32s3"
+        "port/native/mk_port_native.c"
+        "port/freertos/mk_port_freertos.c"
+    INCLUDE_DIRS "include" "arch/esp32s3" "port" "port/native" "port/freertos"
     REQUIRES freertos esp_timer esp_common common heap esp_system
 )
 
-# Enforce no FreeRTOS in app layer - we add compile check via header
 # App layer should only include mk/*.h, never freertos/*.h

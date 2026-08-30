@@ -39,16 +39,21 @@ bool SettingsStore::load(){
 
 bool SettingsStore::save(){
     auto& nvs = NvsStore::instance();
-    nvs.set_string("device_name", settings_.device_name);
-    nvs.set_string("wifi_ssid", settings_.wifi_ssid);
-    nvs.set_string("wifi_pass", settings_.wifi_password);
-    nvs.set_string("timezone", settings_.timezone);
-    nvs.set_i32("brightness", settings_.display_brightness);
-    nvs.set_bool("ble_en", settings_.ble_enabled);
-    nvs.set_bool("wifi_en", settings_.wifi_enabled);
-    nvs.set_bool("time_24h", settings_.time_24h);
-    ESP_LOGI(TAG, "Settings saved");
-    return true;
+    bool ok = true;
+    auto chk = [&](Result<void> r, const char* key){
+        if (r.is_err()) { ESP_LOGE(TAG, "save %s failed: %s", key, r.error_message().c_str()); ok = false; }
+    };
+    chk(nvs.set_string("device_name", settings_.device_name), "device_name");
+    chk(nvs.set_string("wifi_ssid", settings_.wifi_ssid), "wifi_ssid");
+    chk(nvs.set_string("wifi_pass", settings_.wifi_password), "wifi_pass");
+    chk(nvs.set_string("timezone", settings_.timezone), "timezone");
+    chk(nvs.set_i32("brightness", settings_.display_brightness), "brightness");
+    chk(nvs.set_bool("ble_en", settings_.ble_enabled), "ble_en");
+    chk(nvs.set_bool("wifi_en", settings_.wifi_enabled), "wifi_en");
+    chk(nvs.set_bool("time_24h", settings_.time_24h), "time_24h");
+    if (ok) ESP_LOGI(TAG, "Settings saved");
+    else ESP_LOGW(TAG, "Settings save partial failure — NVS may be worn");
+    return ok;
 }
 
 bool SettingsStore::factory_reset(){

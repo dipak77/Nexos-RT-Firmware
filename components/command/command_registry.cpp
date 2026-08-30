@@ -199,10 +199,10 @@ void CommandRegistry::register_builtin_commands(){
         return CommandResult{0, CommandId::TIME_SYNC, CommandStatus::FAILED, "time sync", r.error_message(), (int)r.error(), 0};
     }});
 
-    // display
+    // display — uses 200ms finite lock, never infinite (R4)
     register_command({CommandId::DISPLAY_TEST, "display_test", "Display test pattern", "display test", [](auto args){
         auto& runtime = lvgl_adapter::LvglRuntime::instance();
-        runtime.lock();
+        if (!runtime.lock(200)) return CommandResult{0, CommandId::DISPLAY_TEST, CommandStatus::BUSY, "display test", "Display busy (LVGL lock timeout 200ms)", 0, 0};
         auto r = display::GC9A01Display::instance().test_pattern();
         if(runtime.is_initialized()) {
             lv_obj_invalidate(lv_screen_active());
@@ -259,6 +259,12 @@ void CommandRegistry::register_builtin_commands(){
         auto st = ota::OtaService::instance().status();
         char buf[128]; snprintf(buf, sizeof(buf), "OTA state=%d progress=%d%% error=%s", (int)st.state, st.progress_percent, st.error);
         return CommandResult{0, CommandId::OTA_STATUS, CommandStatus::SUCCESS, "ota status", buf, 0, 0};
+    }});
+    register_command({CommandId::OTA_UPDATE, "ota_update", "OTA update via HTTPS (non-blocking)", "ota update <https_url>", [](auto args){
+        if(args.empty()) return CommandResult{0, CommandId::OTA_UPDATE, CommandStatus::INVALID, "ota update", "Usage: ota update https://example.com/firmware.bin", 4002, 0};
+        auto r = ota::OtaService::instance().check_and_update_async(args[0], args.size()>=2?args[1]:"");
+        if(r.is_ok()) return CommandResult{0, CommandId::OTA_UPDATE, CommandStatus::SUCCESS, "ota update", "OTA async started on Core0 (watchdog 30s), check ota_status", 0, 0};
+        return CommandResult{0, CommandId::OTA_UPDATE, CommandStatus::FAILED, "ota update", r.error_message(), (int)r.error(), 0};
     }});
 
     // Microkernel Diagnostics

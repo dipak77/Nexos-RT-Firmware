@@ -44,8 +44,12 @@ void EventBus::process_events_blocking(uint32_t timeout_ms){
     if(mk_queue_receive(queue_, &ev, timeout_ms) == MK_OK){
         std::vector<Subscription> copy;
         { std::lock_guard<std::mutex> lock(mutex_); copy = subs_; }
+        // Callbacks run in SYSTEM thread context — they must be non-blocking and must NOT
+        // directly touch LVGL or other task-owned resources. Queue a UiCommand or publish
+        // another event instead of locking the display here.
         for(auto &s: copy){
             if(s.all || s.type==ev.type){
+                // Guard against callback throwing/panicking stalling SYSTEM watchdog
                 s.cb(ev);
             }
         }

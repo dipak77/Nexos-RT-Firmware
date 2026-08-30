@@ -18,7 +18,10 @@ class OtaService {
 public:
     static OtaService& instance();
     Result<void> initialize();
+    // Blocking — use only from dedicated OTA task (see check_and_update_async)
     Result<void> check_and_update(const std::string& url, const std::string& cert_pem = "");
+    // Non-blocking: spawns OTA task on Core0, feeds watchdog, enforces HTTPS + cert
+    Result<void> check_and_update_async(const std::string& url, const std::string& cert_pem = "");
     Result<void> rollback();
     OtaStatus status() const { return status_; }
     bool is_in_progress() const { return status_.state==OtaState::DOWNLOADING || status_.state==OtaState::CHECKING; }
@@ -26,6 +29,7 @@ public:
 private:
     OtaStatus status_{};
     bool initialized_{false};
+    static void ota_task_entry(void* arg);
 };
 
 } // namespace ota

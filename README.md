@@ -264,6 +264,8 @@ All architectural, operational, hardware, and engineering documents are indexed 
 |---|---|
 | [architecture.md](docs/architecture.md) | High-level system layering, boot sequence, and multi-core domain task distribution. |
 | [architecture_microkernel.md](docs/architecture_microkernel.md) | Nexos-RT (`mk_*`) microkernel primitives, task slot state machines, spinlocks, and PI mutexes. |
+| [NATIVE_KERNEL.md](docs/NATIVE_KERNEL.md) | Pure base-level native kernel mode (`MK_NATIVE_KERNEL=1`), port isolation, and radio quarantine. |
+
 
 ### 3. Hardware & Pinout References
 | Document | Description |

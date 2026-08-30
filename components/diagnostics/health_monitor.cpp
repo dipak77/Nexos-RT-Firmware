@@ -23,9 +23,11 @@ Result<void> HealthMonitor::initialize(){
 SystemMetrics HealthMonitor::get_metrics(){
     SystemMetrics m{};
     m.uptime_sec = esp_timer_get_time()/1000000;
-    m.free_heap = esp_get_free_heap_size();
-    m.min_free_heap = esp_get_minimum_free_heap_size();
-    m.largest_free_block = heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT);
+    // Use INTERNAL SRAM only — matches mk_kernel_get_stats (MALLOC_CAP_INTERNAL) and diag threshold MK_DIAG_HEAP_WARN_BYTES.
+    // Total heap includes PSRAM and would mask SRAM exhaustion (PSRAM 8MB hides 20KB SRAM leak).
+    m.free_heap = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+    m.min_free_heap = heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL);
+    m.largest_free_block = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
     m.task_count = mk_task_count();
     return m;
 }

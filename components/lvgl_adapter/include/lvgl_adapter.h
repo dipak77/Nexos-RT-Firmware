@@ -14,9 +14,11 @@ public:
     bool init(esp_lcd_panel_handle_t panel, esp_lcd_panel_io_handle_t io, int hres, int vres);
     void deinit();
     void tick(uint32_t ms);
-    void lock();
+    bool lock(uint32_t timeout_ms = 200); // finite timeout, returns false on stall
+    bool try_lock(uint32_t timeout_ms = 50);
     void unlock();
     uint32_t handle_timer(); // calls lv_timer_handler
+    bool handle_timer_protected(uint32_t timeout_ms = 200);
     bool is_initialized() const { return initialized_; }
     lv_display_t* display() const { return lv_display_; }
 

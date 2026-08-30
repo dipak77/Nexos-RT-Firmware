@@ -108,7 +108,11 @@ bool LvglRuntime::init(esp_lcd_panel_handle_t panel, esp_lcd_panel_io_handle_t i
         return false;
     }
 
-    // LVGL tick is advanced from the GUI thread using mk_time_ms().
+    // LVGL tick: use monotonic mk_time_ms via lv_tick_set_cb so no drift (fixes R5)
+    // If LVGL version supports it, register callback; otherwise GUI thread will tick manually with exact delta.
+#if LV_VERSION_MAJOR >= 9
+    lv_tick_set_cb([]() -> uint32_t { return (uint32_t)mk_time_ms(); });
+#endif
     tick_timer_ = nullptr;
 
     initialized_ = true;
@@ -120,18 +124,31 @@ void LvglRuntime::tick(uint32_t ms){
     if (ms) lv_tick_inc(ms);
 }
 
-void LvglRuntime::lock(){
-    if(mutex_) mk_mutex_lock(mutex_, 0xFFFFFFFF);
+bool LvglRuntime::lock(uint32_t timeout_ms){
+    if(!mutex_) return false;
+    return mk_mutex_lock(mutex_, timeout_ms) == MK_OK;
+}
+bool LvglRuntime::try_lock(uint32_t timeout_ms){
+    return lock(timeout_ms);
 }
 void LvglRuntime::unlock(){
     if(mutex_) mk_mutex_unlock(mutex_);
 }
 
 uint32_t LvglRuntime::handle_timer(){
-    lock();
+    if(!lock(200)) {
+        ESP_LOGW(TAG, "LVGL lock timeout 200ms — skip frame (WDT guard)");
+        return 20;
+    }
     uint32_t delay = lv_timer_handler();
     unlock();
     return delay;
+}
+bool LvglRuntime::handle_timer_protected(uint32_t timeout_ms){
+    if(!lock(timeout_ms)) return false;
+    lv_timer_handler();
+    unlock();
+    return true;
 }
 
 void LvglRuntime::deinit(){
