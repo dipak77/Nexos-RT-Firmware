@@ -27,11 +27,14 @@ Adafruit_GC9A01A tft(TFT_CS, TFT_DC, TFT_MOSI, TFT_SCLK, TFT_RST, -1);
 
 volatile uint32_t g_seconds_counter = 0;
 volatile bool g_trigger_color_test = false;
+volatile bool g_trigger_boot = false;
 
 static KernelManager& os() { return KernelManager::getInstance(); }
 
 void render_dashboard(uint32_t sec, const KernelStats& stats) {
-    if (!os().lockDisplay(200)) return;
+    DisplayGuard lock(200);
+    if (!lock) return;
+    mk_watchdog_feed_self();
 
     tft.drawCircle(120, 120, 116, COLOR_CYAN);
     tft.drawCircle(120, 120, 115, COLOR_CYAN);
@@ -100,8 +103,6 @@ void render_dashboard(uint32_t sec, const KernelStats& stats) {
     tft.fillRoundRect(95, 214, 50, 3, 1, COLOR_BORDER);
     int fill_w = 12 + (int)(sec % 36);
     tft.fillRoundRect(95, 214, fill_w, 3, 1, COLOR_CYAN);
-
-    os().unlockDisplay();
 }
 
 static void splash_mark_n(int cx, int cy) {
@@ -137,6 +138,7 @@ void play_boot_flash_screen() {
 
     for (int r = 40; r <= 116; r += 8) {
         tft.drawCircle(120, 120, r, r >= 108 ? COLOR_CYAN : COLOR_BORDER);
+        mk_watchdog_feed_self();
         os().delayMs(18);
     }
     tft.drawCircle(120, 120, 117, COLOR_CYAN);
@@ -184,6 +186,7 @@ void play_boot_flash_screen() {
         tft.fillCircle(42 + target_w, 152, 2, COLOR_WHITE);
         prev_w = target_w;
         splash_status(steps[i].status, steps[i].percent);
+        mk_watchdog_feed_self();
         os().delayMs(220);
     }
 
@@ -207,6 +210,10 @@ void gui_task(void* pvParameters) {
     for (;;) {
         mk_watchdog_feed_self();
         os().heartbeat("GUI");
+        if (g_trigger_boot) {
+            g_trigger_boot = false;
+            play_boot_flash_screen();
+        }
         if (g_trigger_color_test) {
             g_trigger_color_test = false;
             DisplayGuard g(250);
@@ -288,10 +295,8 @@ void cli_task(void* pvParameters) {
                 } else if (line.startsWith("switch_kernel")) {
                     Serial.println("Nexos-RT is the only kernel. switch_kernel is not supported.");
                 } else if (line == "boot") {
-                    Serial.println("[BOOT] replaying Nexos-RT splash");
-                    play_boot_flash_screen();
-                    KernelStats s = os().getStats();
-                    render_dashboard(g_seconds_counter, s);
+                    g_trigger_boot = true;
+                    Serial.println("[BOOT] splash queued for GUI");
                 } else if (line == "test") {
                     g_trigger_color_test = true;
                     Serial.println("[DISPLAY] color test queued");

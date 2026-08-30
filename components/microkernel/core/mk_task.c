@@ -47,11 +47,6 @@ mk_task_handle_t mk_task_create_ext(const mk_task_config_t* config, mk_task_entr
     if(!mk_is_initialized()) return NULL;
 
     taskENTER_CRITICAL(&s_task_lock);
-    if(s_task_count >= MK_CONFIG_MAX_TASKS) {
-        taskEXIT_CRITICAL(&s_task_lock);
-        ESP_LOGE(TAG, "Max tasks reached %d", MK_CONFIG_MAX_TASKS);
-        return NULL;
-    }
     int idx = -1;
     for(int i=0;i<MK_CONFIG_MAX_TASKS;i++){
         if(s_tasks[i].slot_state == SLOT_FREE){ idx=i; break; }
@@ -72,6 +67,7 @@ mk_task_handle_t mk_task_create_ext(const mk_task_config_t* config, mk_task_entr
     internal->public_tcb.stack_base = NULL;
     internal->public_tcb.stack_pointer = NULL;
     strncpy(internal->name_storage, config->name ? config->name : "mk_task", sizeof(internal->name_storage)-1);
+    internal->name_storage[sizeof(internal->name_storage)-1] = 0;
     internal->public_tcb.name = internal->name_storage;
     taskEXIT_CRITICAL(&s_task_lock);
 
@@ -132,12 +128,16 @@ mk_status_t mk_task_delete(mk_task_handle_t task){
 
 mk_task_handle_t mk_task_self(void){
     TaskHandle_t self = xTaskGetCurrentTaskHandle();
+    mk_task_handle_t found = NULL;
+    taskENTER_CRITICAL(&s_task_lock);
     for(int i=0;i<MK_CONFIG_MAX_TASKS;i++){
         if(s_tasks[i].slot_state == SLOT_LIVE && s_tasks[i].port_handle == self) {
-            return &s_tasks[i].public_tcb;
+            found = &s_tasks[i].public_tcb;
+            break;
         }
     }
-    return NULL;
+    taskEXIT_CRITICAL(&s_task_lock);
+    return found;
 }
 
 const char* mk_task_get_name(mk_task_handle_t task){

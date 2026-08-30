@@ -291,7 +291,9 @@ All architectural, operational, hardware, and engineering documents are indexed 
 | **License** | [LICENSE](LICENSE) |
 | **Current Version** | [VERSION](VERSION) (`1.1.0`) |
 | **ESP32-S3 DevKit Guide** | [Espressif DevKitC-1 v1.1 User Guide](https://docs.espressif.com/projects/esp-dev-kits/en/latest/esp32s3/esp32-s3-devkitc-1/user_guide_v1.1.html) |
+| **Complete Reference PDF** | [`docs/hardware and toolkit reference doc/Smart-Device-Firmware-Complete-Reference.pdf`](docs/hardware%20and%20toolkit%20reference%20doc/Smart-Device-Firmware-Complete-Reference.pdf) |
 | **ESP32-S3 Datasheet** | [`hardware screenshot/esp32-s3_datasheet_en.pdf`](hardware%20screenshot/esp32-s3_datasheet_en.pdf) |
 | **DevKit Hardware Manual** | [`hardware screenshot/esp-dev-kits-en-master-esp32s3.pdf`](hardware%20screenshot/esp-dev-kits-en-master-esp32s3.pdf) |
 | **Pinout Diagram** | [`hardware screenshot/ESP32-S3_DevKitC-1_pinlayout_v1.1.jpg`](hardware%20screenshot/ESP32-S3_DevKitC-1_pinlayout_v1.1.jpg) |
+
 

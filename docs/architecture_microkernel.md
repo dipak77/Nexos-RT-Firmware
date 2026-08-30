@@ -28,7 +28,7 @@ Product Application & Services (mk_* only)
 | **GUI** | 7 (`MK_PRIO_GUI`) | 16 | Core 1 | 8192 B | 4000 ms |
 | **SYSTEM** | 3 (`MK_PRIO_DIAGNOSTICS`) | 12 | Core 1 | 4096 B | 4000 ms |
 | **CLI / CMD** | 6 (`MK_PRIO_COMMAND`) | 5 | Core 1 | 4096 B | 4000 ms |
-| **CONNECTIVITY** | 5 (`MK_PRIO_CONNECTIVITY`) | 8 | Core 0 | 4096 B | 6000 ms |
+| **CONNECTIVITY** | 5 (`MK_PRIO_CONNECTIVITY`) | 8 | Core 1 | 8192 B | 4000 ms |
 
 ## Microkernel Primitives & Capabilities
 

@@ -200,11 +200,12 @@ esp_err_t SystemController::start(){
         command::CommandService::instance().run_console();
     };
 
-    if (!spawn_nextos("GUI", MK_PRIO_GUI, MK_STACK_GUI, 1, gui_thread) ||
-        !spawn_nextos("SYSTEM", MK_PRIO_DIAGNOSTICS, 4096, 1, system_thread) ||
-        !spawn_nextos("COMMAND", MK_PRIO_COMMAND, MK_STACK_COMMAND, 1, cmd_thread)) {
-        return ESP_FAIL;
-    }
+    mk_task_handle_t t_gui = spawn_nextos("GUI", MK_PRIO_GUI, MK_STACK_GUI, 1, gui_thread);
+    if (!t_gui) return ESP_FAIL;
+    mk_task_handle_t t_sys = spawn_nextos("SYSTEM", MK_PRIO_DIAGNOSTICS, 4096, 1, system_thread);
+    if (!t_sys) { mk_task_delete(t_gui); return ESP_FAIL; }
+    mk_task_handle_t t_cmd = spawn_nextos("COMMAND", MK_PRIO_COMMAND, MK_STACK_COMMAND, 1, cmd_thread);
+    if (!t_cmd) { mk_task_delete(t_sys); mk_task_delete(t_gui); return ESP_FAIL; }
 
     // Wi-Fi
     if(storage::SettingsStore::instance().settings().wifi_enabled){
@@ -311,7 +312,7 @@ static void system_thread(void* arg){
             ui.uptime_sec = metrics.uptime_sec;
             ui.free_heap = metrics.free_heap;
             ui.brightness = storage::SettingsStore::instance().settings().display_brightness;
-            ui.cpu_load = (uint8_t)(kstats.context_switches % 100);
+            ui.cpu_load = (uint8_t)mk_kernel_get_cpu_load();
 
             if(ui.wifi_connected && ui.time_synced) {
                 copy_cstr(ui.system_status, "SYSTEM OK");

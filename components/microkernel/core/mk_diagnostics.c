@@ -4,6 +4,7 @@
 #include "esp_log.h"
 #include "esp_heap_caps.h"
 #include "esp_timer.h"
+#include "mk_chip_port.h"
 #include <string.h>
 
 static const char* TAG = "NEXTOS_DIAG";
@@ -24,6 +25,7 @@ static bool s_healthy = true;
 static char s_health[24] = "OK";
 static uint64_t s_last_idle_us;
 static uint32_t s_cpu_load;
+static portMUX_TYPE s_diag_lock = portMUX_INITIALIZER_UNLOCKED;
 
 static uint64_t now_us(void) { return (uint64_t)esp_timer_get_time(); }
 
@@ -74,9 +76,11 @@ void mk_watchdog_register(const char* name, uint32_t timeout_ms, mk_watchdog_cal
 void mk_watchdog_feed(const char* name) {
     mk_wd_t* w = find_wd(name, false);
     if (!w) return;
+    taskENTER_CRITICAL(&s_diag_lock);
     w->last_feed_us = now_us();
     w->seen_feed = true;
     w->stalled = false;
+    taskEXIT_CRITICAL(&s_diag_lock);
 }
 
 mk_watchdog_token_t mk_watchdog_register_task(mk_task_handle_t task, uint32_t timeout_ms, mk_watchdog_callback_t cb) {
@@ -89,11 +93,14 @@ mk_watchdog_token_t mk_watchdog_register_task(mk_task_handle_t task, uint32_t ti
 
 void mk_watchdog_feed_token(mk_watchdog_token_t token) {
     if (token == 0 || token > MK_DIAG_MAX_WATCHDOGS) return;
+    taskENTER_CRITICAL(&s_diag_lock);
     mk_wd_t* w = &s_wd[token - 1];
-    if (!w->registered) return;
-    w->last_feed_us = now_us();
-    w->seen_feed = true;
-    w->stalled = false;
+    if (w->registered) {
+        w->last_feed_us = now_us();
+        w->seen_feed = true;
+        w->stalled = false;
+    }
+    taskEXIT_CRITICAL(&s_diag_lock);
 }
 
 void mk_watchdog_feed_self(void) {
@@ -103,7 +110,9 @@ void mk_watchdog_feed_self(void) {
 
 void mk_diagnostics_copy_health(char* dst, size_t dst_len) {
     if (!dst || dst_len == 0) return;
+    taskENTER_CRITICAL(&s_diag_lock);
     strncpy(dst, s_health, dst_len - 1);
+    taskEXIT_CRITICAL(&s_diag_lock);
     dst[dst_len - 1] = 0;
 }
 
@@ -151,8 +160,11 @@ void mk_diagnostics_tick(void) {
         s_last_idle_us = t;
     }
 
+    taskENTER_CRITICAL(&s_diag_lock);
     s_healthy = ok;
     strncpy(s_health, text, sizeof(s_health) - 1);
+    s_health[sizeof(s_health) - 1] = 0;
+    taskEXIT_CRITICAL(&s_diag_lock);
 }
 
 bool mk_diagnostics_healthy(void) { return s_healthy; }
