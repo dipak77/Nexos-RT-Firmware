@@ -14,8 +14,10 @@ struct UiState {
     char date_str[16]{"-- --- ----"};
     char time_full[16]{"--:--:--"}; // 24h internal
     bool wifi_connected{false};
+    bool wifi_ap_running{false};
     int wifi_rssi{0};
     char wifi_ssid[32]{""};
+    char wifi_ap_ssid[32]{""};
     char ip[16]{""};
 
     bool ble_enabled{false};

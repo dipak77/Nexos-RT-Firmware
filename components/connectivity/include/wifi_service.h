@@ -21,6 +21,7 @@ public:
     Result<void> initialize();
     Result<void> start();
     Result<void> stop();
+    Result<void> start_ap();
     Result<void> connect(const std::string& ssid, const std::string& pass, uint32_t timeout_ms = 15000);
     Result<void> disconnect();
     Result<std::vector<WifiApRecord>> scan(uint32_t timeout_ms = 10000);

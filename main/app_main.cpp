@@ -336,9 +336,11 @@ static void system_thread(void* arg) {
             }
 
             ui.wifi_connected = (wifi_st.state == connectivity::WifiState::CONNECTED);
+            ui.wifi_ap_running = wifi_st.ap_running;
             ui.wifi_rssi = wifi_st.rssi;
             copy_cstr(ui.wifi_ssid, wifi_st.ssid);
-            copy_cstr(ui.ip, wifi_st.ip);
+            copy_cstr(ui.wifi_ap_ssid, wifi_st.ap_ssid);
+            copy_cstr(ui.ip, wifi_st.has_ip ? wifi_st.ip : wifi_st.ap_ip);
 
             ui.ble_enabled = storage::SettingsStore::instance().settings().ble_enabled;
             ui.ble_connected = ble_st.connected;
@@ -358,6 +360,8 @@ static void system_thread(void* arg) {
                 copy_cstr(ui.system_status, "SYSTEM OK");
             } else if(ui.wifi_connected) {
                 copy_cstr(ui.system_status, "SYNCING TIME");
+            } else if(ui.wifi_ap_running) {
+                copy_cstr(ui.system_status, "WIFI AP ON");
             } else {
                 copy_cstr(ui.system_status, "NO WIFI");
             }

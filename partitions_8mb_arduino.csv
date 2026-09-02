@@ -1,0 +1,9 @@
+# Arduino-ESP32 uploads the app at 0x10000. This table must match that
+# offset or the bootloader looks at 0x20000, finds no image header, and
+# reset-loops — backlight on, dark/blue uninitialized GC9A01 glass.
+# Name,     Type, SubType, Offset,   Size,     Flags
+nvs,        data, nvs,     0x9000,   0x5000,
+otadata,    data, ota,     0xe000,   0x2000,
+ota_0,      app,  ota_0,   0x10000,  0x300000,
+ota_1,      app,  ota_1,   0x310000, 0x300000,
+storage,    data, spiffs,  0x610000, 0x1F0000,

@@ -73,9 +73,10 @@ bool KernelManager::startTasks(mk_task_entry_t gui, mk_task_entry_t sys, mk_task
 
     gui_ = spawn("GUI", MK_PRIO_GUI, 8192, 1, gui);
     if (!gui_) return false;
-    sys_ = spawn("SYSTEM", MK_PRIO_DIAGNOSTICS, 4096, 1, sys);
+    // Wi-Fi AP + BLE init run on SYSTEM; 4 KB overflows and resets the chip.
+    sys_ = spawn("SYSTEM", MK_PRIO_DIAGNOSTICS, 12288, 1, sys);
     if (!sys_) { rollback(); return false; }
-    cli_ = spawn("CLI", MK_PRIO_COMMAND, 4096, 1, cli);
+    cli_ = spawn("CLI", MK_PRIO_COMMAND, 6144, 1, cli);
     if (!cli_) { rollback(); return false; }
 
     if (mk_start() != MK_OK) {

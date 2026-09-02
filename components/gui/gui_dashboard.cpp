@@ -325,6 +325,13 @@ void DashboardScreen::update(const UiState& state){
             char txt[24]; snprintf(txt, sizeof(txt), "WiFi %d", state.wifi_rssi);
             lv_label_set_text(wifi_label, txt);
             lv_obj_set_style_text_color(wifi_label, c(COLOR_TEXT_PRIMARY), 0);
+        } else if(state.wifi_ap_running){
+            lv_obj_set_style_bg_color(wifi_dot, c(COLOR_BLE_ADV), 0);
+            lv_obj_set_style_shadow_opa(wifi_dot, LV_OPA_40, 0);
+            lv_obj_set_style_border_color(wifi_pill, c(COLOR_BLE_ADV), 0);
+            lv_obj_set_style_border_opa(wifi_pill, LV_OPA_20, 0);
+            lv_label_set_text(wifi_label, "AP ON");
+            lv_obj_set_style_text_color(wifi_label, c(COLOR_TEXT_PRIMARY), 0);
         } else {
             lv_obj_set_style_bg_color(wifi_dot, c(COLOR_WIFI_BAD), 0);
             lv_obj_set_style_shadow_opa(wifi_dot, LV_OPA_0, 0);

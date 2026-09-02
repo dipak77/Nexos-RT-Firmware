@@ -146,11 +146,23 @@ void CommandRegistry::register_builtin_commands(){
     // wifi
     register_command({CommandId::WIFI_STATUS, "wifi_status", "WiFi status", "wifi status", [](auto args){
         auto st = connectivity::WifiService::instance().status();
-        char buf[256];
-        snprintf(buf, sizeof(buf), "[WIFI]\nstate : %s\nssid : %s\nrssi : %d dBm\nip : %s\n",
+        char buf[384];
+        snprintf(buf, sizeof(buf),
+            "[WIFI]\nsta     : %s\nssid    : %s\nrssi    : %d dBm\nip      : %s\n"
+            "ap      : %s\nap ssid : %s\nap pass : nexos1234\nap ip   : %s\nclients : %u\n",
             (st.state==connectivity::WifiState::CONNECTED)?"CONNECTED": (st.state==connectivity::WifiState::CONNECTING?"CONNECTING":"DISCONNECTED"),
-            st.ssid, st.rssi, st.ip);
+            st.ssid, st.rssi, st.ip,
+            st.ap_running ? "ON (visible on phone Wi-Fi scan, 2.4 GHz)" : "OFF",
+            st.ap_ssid, st.ap_ip, (unsigned)st.ap_clients);
         return CommandResult{0, CommandId::WIFI_STATUS, CommandStatus::SUCCESS, "wifi status", buf, 0, 0};
+    }});
+    register_command({CommandId::WIFI_STATUS, "wifi_ap", "Show device Wi-Fi hotspot name", "wifi ap", [](auto args){
+        auto st = connectivity::WifiService::instance().status();
+        char buf[192];
+        snprintf(buf, sizeof(buf),
+            "Phone Wi-Fi name : %s\nPassword         : nexos1234\nAP IP            : %s\nClients          : %u\nBand             : 2.4 GHz\n",
+            st.ap_ssid, st.ap_ip, (unsigned)st.ap_clients);
+        return CommandResult{0, CommandId::WIFI_STATUS, CommandStatus::SUCCESS, "wifi ap", buf, 0, 0};
     }});
     register_command({CommandId::WIFI_SCAN, "wifi_scan", "Scan WiFi APs", "wifi scan", [](auto args){
         auto res = connectivity::WifiService::instance().scan();

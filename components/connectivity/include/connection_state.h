@@ -1,4 +1,5 @@
 #pragma once
+#include <cstdint>
 
 namespace smart_device {
 namespace connectivity {
@@ -12,6 +13,10 @@ struct WifiStatus {
     char ip[16]{""};
     int rssi{0};
     bool has_ip{false};
+    char ap_ssid[33]{""};
+    char ap_ip[16]{"192.168.4.1"};
+    bool ap_running{false};
+    uint8_t ap_clients{0};
 };
 
 struct BleStatus {

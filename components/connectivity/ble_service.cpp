@@ -3,6 +3,7 @@
 #include "storage/settings_store.h"
 #include "event_bus/event_bus.h"
 #include "esp_log.h"
+#include <cstring>
 #include "nimble/nimble_port.h"
 #include "nimble/nimble_port_freertos.h"
 #include "host/ble_hs.h"
@@ -60,19 +61,55 @@ Result<void> BleService::start_advertising(){
     struct ble_gap_adv_params adv_params{};
     adv_params.conn_mode = BLE_GAP_CONN_MODE_UND;
     adv_params.disc_mode = BLE_GAP_DISC_MODE_GEN;
+    // Fast advertising so Android/iOS scanners see the device quickly.
+    adv_params.itvl_min = 0x20; // 20 ms
+    adv_params.itvl_max = 0x40; // 40 ms
+
+    // Keep the complete local name in the primary ADV PDU. iOS Settings uses
+    // passive scan and will not pick up a name that only lives in scan response.
+    const char* name = status_.device_name[0] ? status_.device_name : "SmartDisplay";
+    const char* adv_name = name;
+    uint8_t adv_name_len = static_cast<uint8_t>(strlen(adv_name));
+    bool complete = true;
+    // Flags(3) + name(2+len) must stay <= 31. Truncate rather than drop the name.
+    if(adv_name_len > 20){
+        adv_name_len = 20;
+        complete = false;
+    }
 
     struct ble_hs_adv_fields fields{};
     fields.flags = BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP;
-    fields.tx_pwr_lvl_is_present = 1;
-    fields.tx_pwr_lvl = BLE_HS_ADV_TX_PWR_LVL_AUTO;
-    const char* name = status_.device_name;
-    fields.name = (uint8_t*)name;
-    fields.name_len = strlen(name);
-    fields.name_is_complete = 1;
+    fields.name = (uint8_t*)adv_name;
+    fields.name_len = adv_name_len;
+    fields.name_is_complete = complete ? 1 : 0;
 
-    ble_gap_adv_set_fields(&fields);
+    int rc = ble_gap_adv_set_fields(&fields);
+    if(rc != 0){
+        ESP_LOGW(TAG, "ADV fields rc=%d, retrying with short name", rc);
+        static const char* short_name = "SmartDisplay";
+        fields.name = (uint8_t*)short_name;
+        fields.name_len = 12;
+        fields.name_is_complete = 1;
+        rc = ble_gap_adv_set_fields(&fields);
+        if(rc != 0){
+            ESP_LOGE(TAG, "ADV fields failed rc=%d", rc);
+            status_.state = BleState::FAILED;
+            return Result<void>::Err(AppError::BLE_ADVERTISING_FAILED, "adv fields failed");
+        }
+    }
 
-    int rc = ble_gap_adv_start(BLE_OWN_ADDR_PUBLIC, nullptr, BLE_HS_FOREVER, &adv_params, ble_gap_event, nullptr);
+    if(ble_gap_adv_active()){
+        ble_gap_adv_stop();
+    }
+
+    uint8_t own_addr_type = BLE_OWN_ADDR_PUBLIC;
+    rc = ble_hs_id_infer_auto(0, &own_addr_type);
+    if(rc != 0){
+        ESP_LOGW(TAG, "addr infer rc=%d, using random", rc);
+        own_addr_type = BLE_OWN_ADDR_RANDOM;
+    }
+
+    rc = ble_gap_adv_start(own_addr_type, nullptr, BLE_HS_FOREVER, &adv_params, ble_gap_event, nullptr);
     if(rc!=0){
         ESP_LOGE(TAG, "Adv start failed rc=%d", rc);
         status_.state = BleState::FAILED;
@@ -80,7 +117,7 @@ Result<void> BleService::start_advertising(){
     }
     status_.advertising = true;
     status_.state = BleState::ADVERTISING;
-    ESP_LOGI(TAG, "BLE advertising started");
+    ESP_LOGI(TAG, "BLE advertising started name=%s", name);
 
     AppEvent ev{AppEventType::BLE_STARTED}; EventBus::instance().publish(ev);
     return Result<void>::Ok();
@@ -110,6 +147,11 @@ void BleService::set_connected(bool connected){
 
 static void ble_on_sync(void){
     ESP_LOGI(TAG, "BLE sync on core %d", mk_current_core());
+    int rc = ble_hs_util_ensure_addr(0);
+    if(rc != 0){
+        ESP_LOGE(TAG, "BLE address ensure failed rc=%d", rc);
+        return;
+    }
     // NimBLE host task (Core0) context — publish only, don't block. start_advertising is lightweight.
     BleService::instance().start_advertising();
 }
