@@ -55,6 +55,10 @@ static const char* reset_reason_str() {
 #define WIFI_AP_CHANNEL        6
 
 #define TFT_DC    10
+// Factory standard layout:
+// #define TFT_CS    9
+// #define TFT_RST   14
+// #define TFT_SPI_HZ 2000000U
 // 5-wire bring-up: CS and RST are unplugged. Pass -1 so Adafruit
 // software-resets the panel (0x01) and does not toggle unused GPIO 9/14.
 // Wire CS->GPIO9 and RST->GPIO14 and set these to 9/14 for a hard reset.

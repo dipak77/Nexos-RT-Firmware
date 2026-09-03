@@ -5,6 +5,8 @@ idf_component_register(
         "core/mk_scheduler.c"
         "core/mk_idle.c"
         "core/mk_diagnostics.c"
+        "core/mk_health.c"
+        "core/mk_crash.c"
         "ipc/mk_mutex.c"
         "ipc/mk_semaphore.c"
         "ipc/mk_queue.c"

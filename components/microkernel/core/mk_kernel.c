@@ -1,6 +1,8 @@
 #include "mk_kernel.h"
 #include "mk_task.h"
 #include "mk_scheduler.h"
+#include "mk_health.h"
+#include "mk_crash.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "esp_heap_caps.h"
@@ -22,6 +24,8 @@ const char* mk_status_to_string(mk_status_t s){
         case MK_ERR_INVALID: return "INVALID";
         case MK_ERR_NOT_INITIALIZED: return "NOT_INITIALIZED";
         case MK_ERR_BAD_STATE: return "BAD_STATE";
+        case MK_ERR_DEADLOCK: return "DEADLOCK";
+        case MK_ERR_INTERRUPTED: return "INTERRUPTED";
         default: return "ERROR";
     }
 }
@@ -32,6 +36,18 @@ const char* mk_task_state_to_string(mk_task_state_t s){
         case MK_TASK_BLOCKED: return "BLOCKED";
         case MK_TASK_SLEEPING: return "SLEEP";
         case MK_TASK_SUSPENDED: return "SUSPENDED";
+        case MK_TASK_DELETED: return "DELETED";
+        case MK_TASK_ZOMBIE: return "ZOMBIE";
+        default: return "UNKNOWN";
+    }
+}
+
+const char* mk_health_mode_to_string(mk_health_mode_t m){
+    switch(m){
+        case MK_HEALTH_MODE_NORMAL: return "NORMAL";
+        case MK_HEALTH_MODE_DEGRADED_UI: return "DEGRADED_UI";
+        case MK_HEALTH_MODE_DEGRADED_NET: return "DEGRADED_NET";
+        case MK_HEALTH_MODE_SAFE_MODE: return "SAFE_MODE";
         default: return "UNKNOWN";
     }
 }
@@ -66,6 +82,8 @@ mk_status_t mk_init(const mk_config_t* config){
     s_start_gate = mk_port_event_create("nexos_start");
     if (!s_start_gate) return MK_ERR_NO_MEMORY;
     mk_scheduler_init();
+    mk_health_init();
+    mk_crash_init();
     s_initialized = true;
     s_running = false;
     ESP_LOGI(TAG, "%s v%s initialized tick=%luHz [%s]", MK_CONFIG_OS_NAME, s_config.version, (unsigned long)s_config.tick_hz, MK_NATIVE_KERNEL?"NATIVE":"FREERTOS_SHIM");

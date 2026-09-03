@@ -27,8 +27,8 @@
 // 1 = port/native (still creates tasks via hidden xTaskCreate until mk_context.S).
 // 0 = port/freertos shim. Default 1 after port isolation; Arduino bring-up still
 // links the vendor runtime for the chip. Do not claim the binary is FreeRTOS-free.
-#define MK_NATIVE_KERNEL 0
-#define MK_ISOLATE_RADIO 0
+#define MK_NATIVE_KERNEL 1
+#define MK_ISOLATE_RADIO 1
 
 
 // Priority map (higher number = higher priority)

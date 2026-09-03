@@ -23,11 +23,11 @@ static mk_task_internal_t s_tasks[MK_CONFIG_MAX_TASKS];
 static uint32_t s_task_count = 0;
 static uint32_t s_next_id = 1;
 
-
 static void mk_port_task_wrapper(void* arg){
     mk_task_internal_t* internal = (mk_task_internal_t*)arg;
     mk_wait_start();
     internal->public_tcb.state = MK_TASK_RUNNING;
+    mk_scheduler_set_current_task(&internal->public_tcb);
     if (internal->entry) internal->entry(internal->arg);
     mk_task_delete(&internal->public_tcb);
 #if MK_NATIVE_KERNEL
@@ -66,10 +66,14 @@ mk_task_handle_t mk_task_create_ext(const mk_task_config_t* config, mk_task_entr
     internal->arg = arg;
     internal->public_tcb.id = s_next_id++;
     internal->public_tcb.priority = config->priority;
+    internal->public_tcb.base_priority = config->priority;
     internal->public_tcb.state = MK_TASK_READY;
     internal->public_tcb.stack_size = config->stack_size;
     internal->public_tcb.stack_base = NULL;
     internal->public_tcb.stack_pointer = NULL;
+    internal->public_tcb.time_slice = 10;
+    internal->public_tcb.core_affinity = config->core_affinity;
+    internal->public_tcb.runtime_ticks = 0;
     strncpy(internal->name_storage, config->name ? config->name : "mk_task", sizeof(internal->name_storage)-1);
     internal->name_storage[sizeof(internal->name_storage)-1] = 0;
     internal->public_tcb.name = internal->name_storage;
@@ -90,6 +94,7 @@ mk_task_handle_t mk_task_create_ext(const mk_task_config_t* config, mk_task_entr
     internal->port_handle = h;
     internal->slot_state = SLOT_LIVE;
     s_task_count++;
+    mk_scheduler_add_ready(&internal->public_tcb);
     mk_port_exit_critical();
     ESP_LOGI(TAG, "Task created [%s]: %s id=%lu prio=%d port_prio=%lu core=%d",
              MK_NATIVE_KERNEL?"NATIVE":"SHIM",
@@ -117,6 +122,7 @@ mk_status_t mk_task_delete(mk_task_handle_t task){
             self = (h != NULL && h == mk_port_task_self());
             s_tasks[i].public_tcb.state = MK_TASK_DELETED;
             if(s_task_count) s_task_count--;
+            mk_scheduler_remove_ready(&s_tasks[i].public_tcb);
             mk_port_exit_critical();
             if(h){
                 mk_port_task_delete(h);
@@ -155,6 +161,7 @@ const char* mk_task_get_name(mk_task_handle_t task){
     if(!task) return "unknown";
     return task->name;
 }
+
 mk_task_state_t mk_task_get_state(mk_task_handle_t task){
     if(!task) return MK_TASK_SUSPENDED;
     mk_task_state_t state = MK_TASK_SUSPENDED;
@@ -168,6 +175,7 @@ mk_task_state_t mk_task_get_state(mk_task_handle_t task){
     mk_port_exit_critical();
     return state;
 }
+
 mk_status_t mk_task_get_info(mk_task_handle_t task, mk_task_info_t* info){
     if(!task || !info) return MK_ERR_INVALID;
     memset(info, 0, sizeof(*info));
@@ -188,7 +196,10 @@ mk_status_t mk_task_get_info(mk_task_handle_t task, mk_task_info_t* info){
     strncpy(info->name, internal->public_tcb.name ? internal->public_tcb.name : "", sizeof(info->name)-1);
     info->state = internal->public_tcb.state;
     info->priority = internal->public_tcb.priority;
+    info->base_priority = internal->public_tcb.base_priority;
     info->stack_size = internal->public_tcb.stack_size;
+    info->runtime_ticks = internal->public_tcb.runtime_ticks;
+    info->wake_time_ms = internal->public_tcb.wake_tick;
     h = internal->port_handle;
     mk_port_exit_critical();
     if(h){
@@ -196,6 +207,7 @@ mk_status_t mk_task_get_info(mk_task_handle_t task, mk_task_info_t* info){
     }
     return MK_OK;
 }
+
 uint32_t mk_task_count(void){
     mk_port_enter_critical();
     uint32_t count = s_task_count;
@@ -204,22 +216,35 @@ uint32_t mk_task_count(void){
 }
 
 mk_status_t mk_task_suspend(mk_task_handle_t task){
+    if(!task) return MK_ERR_INVALID;
+    mk_port_enter_critical();
     for(int i=0;i<MK_CONFIG_MAX_TASKS;i++){
         if(&s_tasks[i].public_tcb == task && s_tasks[i].port_handle){
-            mk_port_task_suspend((mk_port_task_handle_t)s_tasks[i].port_handle);
+            mk_scheduler_block_task(task);
             task->state = MK_TASK_SUSPENDED;
+            mk_port_task_handle_t ph = s_tasks[i].port_handle;
+            mk_port_exit_critical();
+            mk_port_task_suspend(ph);
             return MK_OK;
         }
     }
+    mk_port_exit_critical();
     return MK_ERR_NOT_FOUND;
 }
+
 mk_status_t mk_task_resume(mk_task_handle_t task){
+    if(!task) return MK_ERR_INVALID;
+    mk_port_enter_critical();
     for(int i=0;i<MK_CONFIG_MAX_TASKS;i++){
         if(&s_tasks[i].public_tcb == task && s_tasks[i].port_handle){
-            mk_port_task_resume((mk_port_task_handle_t)s_tasks[i].port_handle);
+            mk_scheduler_unblock_task(task);
             task->state = MK_TASK_READY;
+            mk_port_task_handle_t ph = s_tasks[i].port_handle;
+            mk_port_exit_critical();
+            mk_port_task_resume(ph);
             return MK_OK;
         }
     }
+    mk_port_exit_critical();
     return MK_ERR_NOT_FOUND;
 }

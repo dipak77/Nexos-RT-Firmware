@@ -1,7 +1,16 @@
 #include "mk_kernel.h"
+#include "mk_task.h"
+#include "mk_port.h"
+
 void mk_idle_task(void* arg){
+    (void)arg;
     while(true){
-        // In real kernel: WFI, tickless check, run garbage collector
-        mk_sleep_ms(100);
+#if defined(__XTENSA__)
+        // Hardware Wait-for-Interrupt low-power standby on Xtensa LX7
+        __asm__ volatile ("waiti 0");
+#else
+        mk_sleep_ms(10);
+#endif
+        mk_yield();
     }
 }

@@ -22,6 +22,8 @@ typedef enum {
     MK_ERR_ISR = 1009,
     MK_ERR_PRIORITY = 1010,
     MK_ERR_BAD_STATE = 1011,
+    MK_ERR_DEADLOCK = 1012,
+    MK_ERR_INTERRUPTED = 1013,
 } mk_status_t;
 
 typedef enum {
@@ -30,18 +32,25 @@ typedef enum {
     MK_TASK_BLOCKED,
     MK_TASK_SLEEPING,
     MK_TASK_SUSPENDED,
-    MK_TASK_DELETED
+    MK_TASK_DELETED,
+    MK_TASK_ZOMBIE
 } mk_task_state_t;
 
 typedef struct mk_task {
     uint32_t id;
     uint8_t priority;
+    uint8_t base_priority; // for Priority Inheritance
     mk_task_state_t state;
     size_t stack_size;
     void* stack_base;
     void* stack_pointer;
     const char* name;
+    uint32_t time_slice;
+    uint64_t wake_tick;
+    uint64_t runtime_ticks;
+    int core_affinity;
     struct mk_task* next;
+    struct mk_task* prev;
 } mk_task_t;
 typedef void (*mk_task_entry_t)(void* arg);
 typedef mk_task_t* mk_task_handle_t;
@@ -77,8 +86,28 @@ typedef struct {
     uint64_t wake_time_ms;
 } mk_task_info_t;
 
+typedef enum {
+    MK_HEALTH_MODE_NORMAL = 0,
+    MK_HEALTH_MODE_DEGRADED_UI,
+    MK_HEALTH_MODE_DEGRADED_NET,
+    MK_HEALTH_MODE_SAFE_MODE,
+} mk_health_mode_t;
+
+typedef struct {
+    uint8_t device_score; // 0 - 100
+    uint8_t mem_score;
+    uint8_t crash_score;
+    uint8_t net_score;
+    char fault_code[16];
+    uint32_t uptime_s;
+    uint32_t reboot_count;
+    uint32_t stall_count;
+    mk_health_mode_t mode;
+} mk_health_snapshot_t;
+
 const char* mk_status_to_string(mk_status_t s);
 const char* mk_task_state_to_string(mk_task_state_t s);
+const char* mk_health_mode_to_string(mk_health_mode_t m);
 
 #ifdef __cplusplus
 }

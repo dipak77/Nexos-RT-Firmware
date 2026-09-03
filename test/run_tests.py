@@ -8,9 +8,11 @@ import sys
 import unittest
 from pathlib import Path
 
-# Add simulator to path
+# Add simulator and test root to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "simulator"))
+sys.path.insert(0, str(Path(__file__).parent))
 from run_simulator import DeviceState, CommandEngine, FW_VERSION, KERNEL_VERSION
+from test_nexos_base_os import TestNexosBaseOS
 
 class TestSmartDevicePlatform(unittest.TestCase):
     def setUp(self):

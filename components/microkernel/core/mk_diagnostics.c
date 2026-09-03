@@ -1,6 +1,8 @@
 #include "mk_diagnostics.h"
 #include "mk_kernel.h"
 #include "mk_task.h"
+#include "mk_health.h"
+#include "mk_crash.h"
 #include "esp_log.h"
 #include "esp_heap_caps.h"
 #include "esp_timer.h"
@@ -214,8 +216,11 @@ void mk_diagnostics_tick(void) {
         ESP_LOGW(TAG, "STALL %s age=%lums timeout=%lums", notices[i].name,
                  (unsigned long)notices[i].age_ms,
                  (unsigned long)notices[i].timeout_ms);
+        mk_health_record_fault("STALL", 20);
+        mk_crash_save("STALL", notices[i].name, 0, "Watchdog deadline exceeded");
         if (notices[i].cb) notices[i].cb(notices[i].name);
     }
+    mk_health_tick();
 
     // Real CPU load: 100 * (1 - idle_runtime / total_runtime) using FreeRTOS run-time counters.
     // Requires CONFIG_FREERTOS_USE_TRACE_FACILITY + CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS.
