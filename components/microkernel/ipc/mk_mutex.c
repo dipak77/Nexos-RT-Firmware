@@ -68,11 +68,17 @@ mk_status_t mk_mutex_lock(mk_mutex_t* mutex, uint32_t timeout_ms){
         return MK_ERR_TIMEOUT;
     }
 
-    // Priority Inheritance: Boost owner priority if current task has higher priority
+    // Priority Inheritance: Boost owner on BOTH Nexos-RT bookkeeping AND real
+    // FreeRTOS execution priority. Shadow queue alone does not preempt; the port
+    // bridge is what makes PI real on ESP32-S3 (hybrid execution model).
     if(self_tcb && mutex->owner_tcb && self_tcb->priority > mutex->owner_tcb->priority){
+        void *owner_port = mutex->owner;
         mutex->owner_tcb->priority = self_tcb->priority;
         mk_scheduler_remove_ready(mutex->owner_tcb);
         mk_scheduler_add_ready(mutex->owner_tcb);
+        mk_port_exit_critical();
+        if(owner_port) mk_port_task_set_priority(owner_port, self_tcb->priority);
+        mk_port_enter_critical();
     }
     mk_port_exit_critical();
 
@@ -85,16 +91,20 @@ mk_status_t mk_mutex_lock(mk_mutex_t* mutex, uint32_t timeout_ms){
             mutex->recursion_count = 1;
             mutex->owner = self;
             mutex->owner_tcb = self_tcb;
-            if(self_tcb) mutex->original_prio = self_tcb->priority;
+            if(self_tcb) mutex->original_prio = self_tcb->base_priority ? self_tcb->base_priority : self_tcb->priority;
             mk_port_exit_critical();
             return MK_OK;
         }
 
         // Re-apply priority boost in case owner changed
         if(self_tcb && mutex->owner_tcb && self_tcb->priority > mutex->owner_tcb->priority){
+            void *owner_port = mutex->owner;
             mutex->owner_tcb->priority = self_tcb->priority;
             mk_scheduler_remove_ready(mutex->owner_tcb);
             mk_scheduler_add_ready(mutex->owner_tcb);
+            mk_port_exit_critical();
+            if(owner_port) mk_port_task_set_priority(owner_port, self_tcb->priority);
+            mk_port_enter_critical();
         }
         mk_port_exit_critical();
 
@@ -124,13 +134,18 @@ mk_status_t mk_mutex_unlock(mk_mutex_t* mutex){
         return MK_OK;
     }
 
-    // Restore owner base priority if boosted
-    if(mutex->owner_tcb){
-        uint8_t target_prio = mutex->owner_tcb->base_priority ? mutex->owner_tcb->base_priority : mutex->original_prio;
-        if(mutex->owner_tcb->priority != target_prio){
-            mutex->owner_tcb->priority = target_prio;
-            mk_scheduler_remove_ready(mutex->owner_tcb);
-            mk_scheduler_add_ready(mutex->owner_tcb);
+    // Restore owner base priority if boosted (bookkeeping + real execution)
+    void *owner_port = mutex->owner;
+    mk_task_t *owner_tcb = mutex->owner_tcb;
+    uint8_t target_prio = 0;
+    bool need_unboost = false;
+    if(owner_tcb){
+        target_prio = owner_tcb->base_priority ? owner_tcb->base_priority : mutex->original_prio;
+        if(owner_tcb->priority != target_prio){
+            owner_tcb->priority = target_prio;
+            mk_scheduler_remove_ready(owner_tcb);
+            mk_scheduler_add_ready(owner_tcb);
+            need_unboost = true;
         }
     }
 
@@ -139,6 +154,7 @@ mk_status_t mk_mutex_unlock(mk_mutex_t* mutex){
     mutex->owner = NULL;
     mutex->owner_tcb = NULL;
     mk_port_exit_critical();
+    if(need_unboost && owner_port) mk_port_task_set_priority(owner_port, target_prio);
     mk_port_yield();
     return MK_OK;
 }

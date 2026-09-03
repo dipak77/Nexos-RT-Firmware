@@ -21,9 +21,11 @@ static bool s_has_crash_record = false;
 void mk_crash_init(void){
     if(s_rtc_crash_record.magic == MK_CRASH_MAGIC){
         s_has_crash_record = true;
+        // RTC_NOINIT retains across soft reboot but is random on first power-on;
+        // only trust counter if magic was already valid (it is here).
         s_rtc_reboot_counter++;
         s_rtc_crash_record.reboot_count = s_rtc_reboot_counter;
-        ESP_LOGE(TAG, "[CRASH FLIGHT RECORDER] Previous panic detected: cause=%s task=%s pc=0x%08lx heap=%luB uptime=%lus reboots=%lu",
+        ESP_LOGE(TAG, "[CRASH FLIGHT RECORDER] Previous fault retained: cause=%s task=%s pc=0x%08lx heap=%luB uptime=%lus reboots=%lu (clear with fault clear)",
                  s_rtc_crash_record.cause,
                  s_rtc_crash_record.task_name,
                  (unsigned long)s_rtc_crash_record.fault_pc,
@@ -33,6 +35,8 @@ void mk_crash_init(void){
     } else {
         s_has_crash_record = false;
         memset(&s_rtc_crash_record, 0, sizeof(s_rtc_crash_record));
+        // First power-on: RTC_NOINIT is indeterminate, force deterministic baseline.
+        s_rtc_reboot_counter = 0;
     }
 }
 

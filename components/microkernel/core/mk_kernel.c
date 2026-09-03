@@ -95,6 +95,9 @@ mk_status_t mk_start(void){
     if (s_running) return MK_ERR_BAD_STATE;
     s_running = true;
     mk_port_event_set(s_start_gate, NEXOS_START_BIT);
+    // Start 1kHz accounting tick so quantum/sleep/jitter/ready-count are live.
+    // Preemption remains FreeRTOS-driven; this tick makes Nexos-RT accounting honest.
+    mk_scheduler_start_tick();
     ESP_LOGI(TAG, "%s started — %d tasks", MK_CONFIG_OS_NAME, mk_task_count());
     return MK_OK;
 }

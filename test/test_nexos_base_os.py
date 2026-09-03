@@ -178,5 +178,59 @@ class TestNexosBaseOS(unittest.TestCase):
         self.assertIn("uint32_t free_heap_at_fault", mk_crash_h)
         self.assertIn("uint32_t reboot_count", mk_crash_h)
 
+    # --- 6. Prod-grade correctness bridges (Phase V2.0) ---
+    def test_pi_bridges_to_real_execution_priority(self):
+        """PI must affect real FreeRTOS priority, not just shadow queues."""
+        port_h = self.read("components/microkernel/port/mk_port.h")
+        self.assertIn("mk_port_task_set_priority", port_h)
+        mutex_c = self.read("components/microkernel/ipc/mk_mutex.c")
+        self.assertIn("mk_port_task_set_priority", mutex_c)
+        self.assertIn("vTaskPrioritySet", self.read("components/microkernel/port/native/mk_port_native.c"))
+
+    def test_scheduler_tick_driver_exists(self):
+        """Quantum/sleep/jitter must be driven by 1kHz timer, not dead code."""
+        sched_h = self.read("components/microkernel/include/mk_scheduler.h")
+        self.assertIn("mk_scheduler_start_tick", sched_h)
+        sched_c = self.read("components/microkernel/core/mk_scheduler.c")
+        self.assertIn("esp_timer_create", sched_c)
+        self.assertIn("esp_timer_start_periodic", sched_c)
+        kernel_c = self.read("components/microkernel/core/mk_kernel.c")
+        self.assertIn("mk_scheduler_start_tick", kernel_c)
+
+    def test_health_is_thread_safe(self):
+        health_c = self.read("components/microkernel/core/mk_health.c")
+        self.assertIn("mk_port_enter_critical", health_c)
+        self.assertIn("mk_port_exit_critical", health_c)
+
+    def test_crash_counter_deterministic(self):
+        crash_c = self.read("components/microkernel/core/mk_crash.c")
+        self.assertIn("s_rtc_reboot_counter = 0", crash_c)
+
+    def test_wdt_brownout_not_disabled(self):
+        main_cpp = self.read("src/main.cpp")
+        # Strip // comments so policy comments mentioning the APIs don't trip the test
+        code_lines = [ln for ln in main_cpp.splitlines() if not ln.strip().startswith("//")]
+        code = "\n".join(code_lines)
+        self.assertNotIn("disableCore0WDT();", code)
+        self.assertNotIn("disableCore1WDT();", code)
+        self.assertNotIn("disableLoopWDT();", code)
+        self.assertNotIn("esp_brownout_disable();", code)
+
+    def test_no_plaintext_psk_logging(self):
+        for rel in ["components/connectivity/wifi_service.cpp",
+                    "src/main.cpp",
+                    "components/command/command_registry.cpp"]:
+            content = self.read(rel)
+            # Plaintext demo pass must not appear in log strings (masked as [hidden])
+            self.assertNotIn('PASS=%s', content)
+            self.assertNotIn('PASS=\'%s\'', content)
+            self.assertNotIn(': nexos1234\\n', content)
+
+    def test_arduino_partitions_offset(self):
+        ini = self.read("platformio.ini")
+        self.assertIn("partitions_8mb_arduino.csv", ini)
+        arduino_csv = self.read("partitions_8mb_arduino.csv")
+        self.assertIn("0x10000", arduino_csv)
+
 if __name__ == "__main__":
     unittest.main()

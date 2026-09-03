@@ -219,3 +219,37 @@ uint32_t mk_scheduler_get_max_jitter_us(void){ return s_max_jitter_us; }
 uint64_t mk_scheduler_get_context_switches(void){ return s_context_switches; }
 mk_task_t* mk_scheduler_current_task(void){ return s_current_task; }
 void mk_scheduler_set_current_task(mk_task_t* task){ s_current_task = task; }
+
+#if defined(ESP_PLATFORM)
+#include "esp_timer.h"
+static esp_timer_handle_t s_tick_timer = NULL;
+static void mk_scheduler_tick_cb(void* arg){
+    (void)arg;
+    mk_scheduler_tick(0);
+}
+#endif
+
+void mk_scheduler_start_tick(void){
+#if defined(ESP_PLATFORM)
+    if(s_tick_timer) return;
+    const esp_timer_create_args_t args = {
+        .callback = mk_scheduler_tick_cb,
+        .arg = NULL,
+        .dispatch_method = ESP_TIMER_TASK,
+        .name = "nexos_tick",
+    };
+    if(esp_timer_create(&args, &s_tick_timer) != ESP_OK){ s_tick_timer = NULL; return; }
+    esp_timer_start_periodic(s_tick_timer, 1000);
+#else
+    (void)0;
+#endif
+}
+
+void mk_scheduler_stop_tick(void){
+#if defined(ESP_PLATFORM)
+    if(!s_tick_timer) return;
+    esp_timer_stop(s_tick_timer);
+    esp_timer_delete(s_tick_timer);
+    s_tick_timer = NULL;
+#endif
+}

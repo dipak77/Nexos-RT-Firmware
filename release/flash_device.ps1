@@ -155,7 +155,8 @@ if ($useMerged) {
     if (Test-Path $otaDataBin) {
         $flashArgs += @("0xF000", $otaDataBin)
     }
-    $flashArgs += @("0x20000", $appBin)
+    # Arduino bring-up boots at 0x10000 per partitions_8mb_arduino.csv
+    $flashArgs += @("0x10000", $appBin)
 
     if ($esptoolMode -eq "executable") {
         & $esptoolPath.Source $flashArgs

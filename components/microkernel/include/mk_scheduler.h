@@ -18,6 +18,10 @@ uint32_t mk_scheduler_get_max_jitter_us(void);
 uint64_t mk_scheduler_get_context_switches(void);
 mk_task_t* mk_scheduler_current_task(void);
 void mk_scheduler_set_current_task(mk_task_t* task);
+// 1kHz accounting tick driver (esp_timer). Makes quantum/sleep/jitter real
+// even though preemption itself remains FreeRTOS-driven (hybrid model).
+void mk_scheduler_start_tick(void);
+void mk_scheduler_stop_tick(void);
 #ifdef __cplusplus
 }
 #endif

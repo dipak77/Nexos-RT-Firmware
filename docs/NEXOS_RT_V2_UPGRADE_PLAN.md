@@ -3,7 +3,7 @@
 **Document:** Next-level Nexos-RT Microkernel OS upgrade plan
 **Baseline:** Nexos-RT v1.2.0 / Firmware v1.2.0 (`components/microkernel/include/mk_config.h:1`, `VERSION:1`)
 **Target:** Nexos-RT v2.0 native + v2.1 hardened prod-grade
-**Status:** PLAN — no code changed by this document
+**Status:** PHASE-1 IMPLEMENTED 2026-09-04 — honest hybrid (Nexos-RT API + FreeRTOS execution via port). See §13.
 **Scope:** OS base only. Autonomous user features are explicitly **backlog-deferred** per product decision.
 **Audience:** Principal HW/SW architect, OS dev team, QA, solution delivery
 
@@ -373,4 +373,21 @@ components/microkernel/
 
 ---
 
-*End of V2 upgrade plan. Next step after approval: break §8 Phase V2.0 into tracked tasks and implement behind `MK_NATIVE_KERNEL` with isolation CI green.*
+## 14. Phase-1 implementation record 2026-09-04 (prod-grade hybrid)
+
+Honest model shipped: **Nexos-RT API owned, execution via FreeRTOS port**. No false standalone claim.
+
+* `port/mk_port.h:36` + `port/native/mk_port_native.c:55` + `port/freertos/mk_port_freertos.c:39` — new `mk_port_task_set_priority()`. `ipc/mk_mutex.c:71` PI now bridges to `vTaskPrioritySet` on boost/unboost, shadow queues kept for accounting.
+* `core/mk_scheduler.c:222` + `include/mk_scheduler.h:24` — 1kHz `esp_timer` accounting tick started from `core/mk_kernel.c:100` `mk_start()`. Quantum/sleep/jitter live; preemption remains FreeRTOS.
+* `core/mk_health.c:35` — snapshot/mode locked via `mk_port_enter/exit_critical`, sub-score recovery added.
+* `core/mk_crash.c:21` — RTC counter deterministic init (`0` on first power-on), retained-fault log clarified, explicit `fault clear` contract.
+* `src/main.cpp:25,767` — WDT/brownout left enabled, `init_ble` Core0 WDT disable removed, boot feeds kept.
+* `platformio.ini:20` — Arduino restored to `partitions_8mb_arduino.csv` (`0x10000`); IDF keeps `ota.csv` (`0x20000`). `tools/generate_release_binaries.py:16` + `release/flash_device.ps1:158` fixed to `0x10000` for Arduino.
+* Creds: `WIFI_AP_PASSWORD_DEMO_DEFAULT`, PSK masked as `[hidden]` in `wifi_service.cpp:110`, `src/main.cpp:213,556,649`, `command_registry.cpp:152,163`. BLE hello no longer broadcasts PSK.
+* Display: `src/main.cpp:69` default `4MHz` for dupont integrity, factory `8MHz` documented.
+* Repo: `release/*.bin` untracked via `.gitignore:26` + `git rm --cached`.
+* Validation: `test_nexos_base_os.py:13` + `run_tests.py:32` = **45/45 OK**. `pio run -e esp32s3_arduino` **SUCCESS** RAM `20.9%` Flash `43.1%`. Release merge at `0x10000` verified `1421456B`.
+
+HIL still required on hardware: splash → dashboard → BLE 2.5s → AP 6s, `wifi_ap`, `ble_status`, `health`, 1h soak, brownout/RF coex check.
+
+*End of V2 upgrade plan Phase-1 record.*

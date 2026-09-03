@@ -1,4 +1,5 @@
 #include "mk_health.h"
+#include "mk_port.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include <string.h>
@@ -34,6 +35,10 @@ void mk_health_init(void){
 
 void mk_health_record_fault(const char* fault_code, uint8_t penalty){
     if(!fault_code) return;
+    char code_copy[16];
+    uint8_t score_copy = 0;
+    mk_health_mode_t mode_copy = MK_HEALTH_MODE_NORMAL;
+    mk_port_enter_critical();
     if(s_snapshot.device_score > penalty){
         s_snapshot.device_score -= penalty;
     } else {
@@ -63,13 +68,19 @@ void mk_health_record_fault(const char* fault_code, uint8_t penalty){
     } else if(s_snapshot.device_score < 80){
         s_snapshot.mode = MK_HEALTH_MODE_DEGRADED_UI;
     }
+    strncpy(code_copy, s_snapshot.fault_code, sizeof(code_copy)-1);
+    code_copy[sizeof(code_copy)-1] = '\0';
+    score_copy = s_snapshot.device_score;
+    mode_copy = s_snapshot.mode;
+    mk_port_exit_critical();
 
     ESP_LOGW(TAG, "Health fault recorded: %s (score=%u, mode=%s)",
-             s_snapshot.fault_code, s_snapshot.device_score, mk_health_mode_to_string(s_snapshot.mode));
+             code_copy, score_copy, mk_health_mode_to_string(mode_copy));
 }
 
 void mk_health_tick(void){
     uint64_t now = esp_timer_get_time();
+    mk_port_enter_critical();
     s_snapshot.uptime_s = (uint32_t)((now - s_init_time_us) / 1000000ULL);
 
     // Score recovery: +1 point every 60 seconds healthy
@@ -86,10 +97,33 @@ void mk_health_tick(void){
                 s_snapshot.mode = MK_HEALTH_MODE_DEGRADED_NET;
             }
         }
+        // Sub-scores recover slower toward device score
+        if(s_snapshot.mem_score < 100) s_snapshot.mem_score++;
+        if(s_snapshot.net_score < 100) s_snapshot.net_score++;
     }
+    mk_port_exit_critical();
 }
 
-mk_health_snapshot_t mk_health_get_snapshot(void){ return s_snapshot; }
-mk_health_mode_t mk_health_get_mode(void){ return s_snapshot.mode; }
-void mk_health_set_mode(mk_health_mode_t mode){ s_snapshot.mode = mode; }
-bool mk_health_is_healthy(void){ return s_snapshot.device_score >= 80; }
+mk_health_snapshot_t mk_health_get_snapshot(void){
+    mk_port_enter_critical();
+    mk_health_snapshot_t snap = s_snapshot;
+    mk_port_exit_critical();
+    return snap;
+}
+mk_health_mode_t mk_health_get_mode(void){
+    mk_port_enter_critical();
+    mk_health_mode_t m = s_snapshot.mode;
+    mk_port_exit_critical();
+    return m;
+}
+void mk_health_set_mode(mk_health_mode_t mode){
+    mk_port_enter_critical();
+    s_snapshot.mode = mode;
+    mk_port_exit_critical();
+}
+bool mk_health_is_healthy(void){
+    mk_port_enter_critical();
+    bool h = s_snapshot.device_score >= 80;
+    mk_port_exit_critical();
+    return h;
+}

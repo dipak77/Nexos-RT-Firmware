@@ -13,7 +13,8 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).parent.parent
 BUILD_DIR = REPO_ROOT / ".pio" / "build" / "esp32s3_arduino"
 RELEASE_DIR = REPO_ROOT / "release"
-APP_OFFSET = 0x20000
+# Arduino image boots at 0x10000 per partitions_8mb_arduino.csv. IDF OTA uses 0x20000.
+APP_OFFSET = 0x10000
 
 RELEASE_DIR.mkdir(parents=True, exist_ok=True)
 

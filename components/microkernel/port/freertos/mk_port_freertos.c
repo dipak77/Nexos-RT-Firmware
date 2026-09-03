@@ -38,6 +38,11 @@ mk_port_task_handle_t mk_port_task_self(void){ return (mk_port_task_handle_t)xTa
 uint32_t mk_port_task_get_stack_watermark(mk_port_task_handle_t h){ return uxTaskGetStackHighWaterMark((TaskHandle_t)h)*4; }
 void mk_port_task_suspend(mk_port_task_handle_t h){ vTaskSuspend((TaskHandle_t)h); }
 void mk_port_task_resume(mk_port_task_handle_t h){ vTaskResume((TaskHandle_t)h); }
+void mk_port_task_set_priority(mk_port_task_handle_t h, uint8_t mk_prio){
+    if(!h) return;
+    extern uint32_t mk_map_port_priority(uint8_t);
+    vTaskPrioritySet((TaskHandle_t)h, mk_map_port_priority(mk_prio));
+}
 
 mk_port_event_group_handle_t mk_port_event_create(const char* name){ (void)name; return (mk_port_event_group_handle_t)xEventGroupCreate(); }
 void mk_port_event_delete(mk_port_event_group_handle_t h){ vEventGroupDelete((EventGroupHandle_t)h); }
