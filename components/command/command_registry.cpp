@@ -149,7 +149,7 @@ void CommandRegistry::register_builtin_commands(){
         char buf[384];
         snprintf(buf, sizeof(buf),
             "[WIFI]\nsta     : %s\nssid    : %s\nrssi    : %d dBm\nip      : %s\n"
-            "ap      : %s\nap ssid : %s\nap pass : nexos1234\nap ip   : %s\nclients : %u\n",
+            "ap      : %s\nap ssid : %s\nap pass : [hidden demo default]\nap ip   : %s\nclients : %u\n",
             (st.state==connectivity::WifiState::CONNECTED)?"CONNECTED": (st.state==connectivity::WifiState::CONNECTING?"CONNECTING":"DISCONNECTED"),
             st.ssid, st.rssi, st.ip,
             st.ap_running ? "ON (visible on phone Wi-Fi scan, 2.4 GHz)" : "OFF",
@@ -160,7 +160,7 @@ void CommandRegistry::register_builtin_commands(){
         auto st = connectivity::WifiService::instance().status();
         char buf[192];
         snprintf(buf, sizeof(buf),
-            "Phone Wi-Fi name : %s\nPassword         : nexos1234\nAP IP            : %s\nClients          : %u\nBand             : 2.4 GHz\n",
+            "Phone Wi-Fi name : %s\nPassword         : [hidden demo default]\nAP IP            : %s\nClients          : %u\nBand             : 2.4 GHz\n",
             st.ap_ssid, st.ap_ip, (unsigned)st.ap_clients);
         return CommandResult{0, CommandId::WIFI_STATUS, CommandStatus::SUCCESS, "wifi ap", buf, 0, 0};
     }});

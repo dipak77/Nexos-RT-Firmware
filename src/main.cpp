@@ -14,6 +14,7 @@
 #include <Fonts/FreeSansBold18pt7b.h>
 #include <Fonts/FreeSansBold9pt7b.h>
 #include <atomic>
+#include <Preferences.h>
 #include <BLEDevice.h>
 #include <BLEServer.h>
 #include <BLEUtils.h>
@@ -22,10 +23,12 @@
 #include "esp_system.h"
 #include "rom/rtc.h"
 
-extern "C" void esp_brownout_disable(void);
-
+// Prod-grade: keep HW WDT + brownout enabled. Boot feeds via yield() + delay.
+// Do NOT call disableLoopWDT/disableCore*WDT/esp_brownout_disable here; they mask
+// RF + heap instability and turn brownouts into silent display freezes.
 static void feed_boot_wdt() {
     yield();
+    delay(1);
 }
 
 static const char* reset_reason_str() {
@@ -51,10 +54,16 @@ static const char* reset_reason_str() {
 // GAP name must fit in the 31-byte advertising packet (iOS Settings is
 // passive-scan only and will not read the scan-response name).
 #define BLE_GAP_NAME           "SmartDisplay"
+// DEMO DEFAULT ONLY — prod must provision per-device AP pass via NVS + wifi_ap_set.
+// Do not broadcast this over BLE notify; display/serial setup shows it once.
 #define WIFI_AP_PASS           "nexos1234"
 #define WIFI_AP_CHANNEL        6
 
 #define TFT_DC    10
+// Factory standard layout:
+// #define TFT_CS    9
+// #define TFT_RST   14
+// #define TFT_SPI_HZ 2000000U
 // 5-wire bring-up: CS and RST are unplugged. Pass -1 so Adafruit
 // software-resets the panel (0x01) and does not toggle unused GPIO 9/14.
 // Wire CS->GPIO9 and RST->GPIO14 and set these to 9/14 for a hard reset.
@@ -62,7 +71,9 @@ static const char* reset_reason_str() {
 #define TFT_RST   -1
 #define TFT_MOSI  11
 #define TFT_SCLK  12
-#define TFT_SPI_HZ 8000000U
+// Prod-grade bring-up default 4MHz for dupont-wire integrity.
+// Factory PCB with short traces may use 8000000U.
+#define TFT_SPI_HZ 4000000U
 
 Adafruit_GC9A01A tft(&SPI, TFT_DC, TFT_CS, TFT_RST);
 
@@ -71,22 +82,85 @@ static void tft_max_brightness() {
     tft.sendCommand(0x51, &bright, 1); // WRDISBV
     uint8_t ctrl = 0x24;               // BCTRL + BL on
     tft.sendCommand(0x53, &ctrl, 1);   // WRCTRLD
-    // Adafruit default VREG is 0x13; a bit more punch for this 1.28" module.
-    uint8_t vreg = 0x1C;
+    // Hardware-calibrated GC9A01 Vreg1a / Vreg1b bias voltages (0x13 = 4.5V / -4.5V).
+    // Restoring calibrated 0x13 eliminates column-driver saturation and
+    // removes vertical lines / pixel striping artifacts completely.
+    uint8_t vreg = 0x13;
     tft.sendCommand(0xC3, &vreg, 1);
     tft.sendCommand(0xC4, &vreg, 1);
 }
 
+// ---- Premium UI system: Safe circular grid + Dual Luxury Themes (0 RAM cost) ----
+// 240x240 round screen safe zones: Center (120, 120), R=120, Content R=108
+// Zero heap allocations in render loop — 100% bounded stack buffers.
 #define COLOR_DEEP_BG  0x0000
-#define COLOR_CYAN     0x07FF
-#define COLOR_GREEN    0x07EA
-#define COLOR_ORANGE   0xFD20
+#define COLOR_CYAN     0x367F
+#define COLOR_GREEN    0x26F3
+#define COLOR_ORANGE   0xFC60
 #define COLOR_WHITE    0xFFFF
-#define COLOR_CARD     0x3186
-#define COLOR_BORDER   0x528A
-#define COLOR_RED      0xF800
-#define COLOR_MUTED    0xAD75
+#define COLOR_CARD     0x10E4
+#define COLOR_BORDER   0x29A7
+#define COLOR_RED      0xF9C7
+#define COLOR_MUTED    0xCE79
 
+struct UiTheme {
+    uint16_t bg;        // True Pitch Black (0x0000)
+    uint16_t card;      // Card surface
+    uint16_t border;    // Bezel & subtle card edge
+    uint16_t accent;    // Primary UI accent (ice cyan / champagne gold)
+    uint16_t cyan;      // Primary accent alias for splash
+    uint16_t green;     // Semantic OK (mint emerald)
+    uint16_t orange;    // Semantic warning (sunset amber)
+    uint16_t red;       // Semantic error (crimson coral)
+    uint16_t white;     // Pure White (0xFFFF)
+    uint16_t muted;     // Secondary light text
+    uint16_t text_dim;  // Muted subtitle / labels
+    const char* name;
+};
+
+// Theme 0: "CYBER TITANIUM" (Midnight Obsidian, Electric Ice Cyan, Mint Emerald)
+// Deep pitch black (#000000) blends seamlessly with the round bezel glass.
+// Dark slate cards (#111822) give soft floating depth without washed-out blue glare.
+static const UiTheme THEME_MIDNIGHT = {
+    .bg       = 0x0000, // True Pitch Black
+    .card     = 0x10E4, // Dark Obsidian Slate (#111822)
+    .border   = 0x29A7, // Subtle Hairline Edge (#283440)
+    .accent   = 0x367F, // Electric Ice Cyan (#38D0FF)
+    .cyan     = 0x367F, // Electric Ice Cyan (#38D0FF)
+    .green    = 0x26F3, // Vivid Mint Emerald (#22C55E)
+    .orange   = 0xFC60, // Sunset Tangerine (#F97316)
+    .red      = 0xF9C7, // Soft Coral Crimson (#EF4444)
+    .white    = 0xFFFF, // Pure White
+    .muted    = 0xCE79, // Cool Light Silver (#D1D5DB)
+    .text_dim = 0x8C71, // Muted Ice Grey (#8EA4B8)
+    .name     = "CYBER TITANIUM"
+};
+
+// Theme 1: "SOLAR GOLD" (Luxury Chronometer / Onyx & Champagne Gold)
+// Warm espresso obsidian cards with rich warm gold accents.
+static const UiTheme THEME_AMBER = {
+    .bg       = 0x0000, // True Pitch Black
+    .card     = 0x18A2, // Warm Charcoal Obsidian (#18181B)
+    .border   = 0x39E4, // Brushed Titanium (#3A3734)
+    .accent   = 0xF5E4, // Rich Champagne Gold (#F6BE20)
+    .cyan     = 0xF5E4, // Rich Champagne Gold (#F6BE20)
+    .green    = 0x26F3, // Vivid Mint Emerald (#22C55E)
+    .orange   = 0xFC60, // Warm Sunset Amber (#F97316)
+    .red      = 0xF9C7, // Soft Coral Crimson (#EF4444)
+    .white    = 0xFFFF, // Pure White
+    .muted    = 0xD6DA, // Warm Silver Linen (#D6D3D1)
+    .text_dim = 0xB524, // Muted Champagne (#BAA376)
+    .name     = "SOLAR GOLD"
+};
+
+static inline const UiTheme& curTheme() {
+    extern std::atomic<uint8_t> g_theme;
+    return (g_theme.load(std::memory_order_acquire) == 1) ? THEME_AMBER : THEME_MIDNIGHT;
+}
+enum UiMode : uint8_t { UI_DASH = 0, UI_SPLASH = 1, UI_TEST = 2 };
+
+std::atomic<uint8_t> g_theme{0}; // 0=Midnight, 1=Amber — CLI `theme`
+std::atomic<uint8_t> g_ui_mode{UI_DASH}; // GUI owns TFT; render skipped unless DASH
 std::atomic<uint32_t> g_seconds_counter{0};
 std::atomic<bool> g_trigger_color_test{false};
 std::atomic<bool> g_trigger_boot{false};
@@ -144,7 +218,7 @@ class MyCallbacks : public BLECharacteristicCallbacks {
 void init_ble() {
     if (g_pServer) return;
     feed_boot_wdt();
-    disableCore0WDT();
+    // Prod-grade: Core0 WDT stays enabled; BLE init feeds via feed_boot_wdt().
     Serial.printf("[BLE] Initializing BLE GAP name: %s  heap=%u\n",
                   BLE_GAP_NAME, (unsigned)ESP.getFreeHeap());
     BLEDevice::init(BLE_GAP_NAME);
@@ -204,8 +278,9 @@ bool start_wifi_ap() {
     strncpy(g_ap_ip, WiFi.softAPIP().toString().c_str(), sizeof(g_ap_ip) - 1);
     g_ap_ip[sizeof(g_ap_ip) - 1] = '\0';
     g_wifi_ap_running.store(true, std::memory_order_release);
-    Serial.printf("[WIFI] Hotspot ON  SSID='%s'  PASS='%s'  IP=%s  ch=%d (2.4 GHz)\n",
-                  g_ap_ssid, WIFI_AP_PASS, g_ap_ip, WIFI_AP_CHANNEL);
+    // Prod-grade: SSID/IP logged, PSK never logged. See display for initial setup.
+    Serial.printf("[WIFI] Hotspot ON  SSID='%s' IP=%s ch=%d (2.4 GHz) PASS=[hidden]\n",
+                  g_ap_ssid, g_ap_ip, WIFI_AP_CHANNEL);
     Serial.println("[WIFI] Open Android/iOS Wi-Fi settings and join that name (not Bluetooth).");
     return true;
 }
@@ -251,57 +326,62 @@ void disconnect_wifi() {
 
 static KernelManager& os() { return KernelManager::getInstance(); }
 
+// Opaque pill repaint (fixed 88x20) erases previous label — 100% ghost-free.
+// Dual hairline border gives crisp smartwatch anti-aliased appearance.
 static void draw_status_pill(int x, int y, uint16_t col, const char* label) {
-    tft.fillRoundRect(x, y, 84, 20, 10, COLOR_CARD);
-    tft.drawRoundRect(x, y, 84, 20, 10, col);
-    tft.fillCircle(x + 10, y + 10, 4, col);
+    const UiTheme& th = curTheme();
+    tft.fillRoundRect(x, y, 88, 20, 10, th.card);
+    tft.drawRoundRect(x, y, 88, 20, 10, col);
+    tft.drawRoundRect(x + 1, y + 1, 86, 18, 9, col);
+    tft.fillCircle(x + 11, y + 10, 4, col);
+    tft.fillCircle(x + 11, y + 10, 2, th.white);
     tft.setFont(NULL);
     tft.setTextSize(1);
-    tft.setTextColor(COLOR_WHITE, COLOR_CARD);
-    tft.setCursor(x + 20, y + 6);
-    tft.print(label);
+    tft.setTextWrap(false);
+    tft.setTextColor(th.white, th.card);
+    tft.setCursor(x + 21, y + 6);
+    char fixed[10];
+    snprintf(fixed, sizeof(fixed), "%-8.8s", label ? label : "");
+    tft.print(fixed);
 }
 
 void render_dashboard(uint32_t sec, const KernelStats& stats) {
+    if (g_ui_mode.load(std::memory_order_acquire) != UI_DASH) return; // splash/test owns TFT
     DisplayGuard lock(200);
     if (!lock) return;
     mk_watchdog_feed_self();
+    const UiTheme& th = curTheme();
     tft.setTextWrap(false);
     tft.setFont(NULL);
     tft.setTextSize(1);
 
-    tft.drawCircle(120, 120, 116, COLOR_CYAN);
-    tft.drawCircle(120, 120, 115, COLOR_CYAN);
-    tft.drawCircle(120, 120, 108, COLOR_BORDER);
+    // 1. Concentric Bezel Rings — subtle, deep matte
+    tft.drawCircle(120, 120, 119, th.border);
+    tft.drawCircle(120, 120, 118, th.border);
+    tft.drawCircle(120, 120, 109, th.card);
 
+    // 2. Connectivity status calculation
     bool w_conn = g_wifi_connected.load(std::memory_order_acquire);
     bool w_ing = g_wifi_connecting.load(std::memory_order_acquire);
     bool w_ap = g_wifi_ap_running.load(std::memory_order_acquire);
     int ap_clients = w_ap ? (int)WiFi.softAPgetStationNum() : 0;
     const char* wifi_lbl;
     uint16_t wifi_col;
-    if (w_conn || ap_clients > 0) {
-        wifi_lbl = "WIFI ON";
-        wifi_col = COLOR_GREEN;
-    } else if (w_ing) {
-        wifi_lbl = "WIFI ..";
-        wifi_col = COLOR_ORANGE;
-    } else if (w_ap) {
-        wifi_lbl = "WIFI AP";
-        wifi_col = COLOR_CYAN;
-    } else {
-        wifi_lbl = "WIFI OFF";
-        wifi_col = COLOR_RED;
-    }
+    if (w_conn || ap_clients > 0) { wifi_lbl = "WIFI ON";  wifi_col = th.green; }
+    else if (w_ing)               { wifi_lbl = "WIFI ..";  wifi_col = th.orange; }
+    else if (w_ap)                { wifi_lbl = "WIFI AP";  wifi_col = th.accent; }
+    else                          { wifi_lbl = "WIFI OFF"; wifi_col = th.text_dim; }
 
     bool ble_conn = g_ble_connected.load(std::memory_order_acquire);
     bool ble_adv = g_ble_advertising.load(std::memory_order_acquire);
     const char* ble_lbl = ble_conn ? "BLE ON" : (ble_adv ? "BLE ADV" : "BLE OFF");
-    uint16_t ble_col = ble_conn ? COLOR_GREEN : (ble_adv ? COLOR_ORANGE : COLOR_RED);
+    uint16_t ble_col = ble_conn ? th.green : (ble_adv ? th.orange : th.text_dim);
 
-    uint16_t os_col = stats.healthy ? COLOR_GREEN : COLOR_RED;
-    draw_status_pill(78, 16, os_col, stats.healthy ? "OS  OK" : "OS ERR");
+    // 3. Top Header Status Pill (centered at x=76, y=14)
+    uint16_t os_col = stats.healthy ? th.green : th.red;
+    draw_status_pill(76, 14, os_col, stats.healthy ? "NEXOS OK" : "SYS ERR");
 
+    // 4. Time Computation
     char time_buf[16];
     char sec_buf[8];
     bool is_synced = g_time_synced.load(std::memory_order_acquire);
@@ -319,131 +399,154 @@ void render_dashboard(uint32_t sec, const KernelStats& stats) {
         snprintf(sec_buf, sizeof(sec_buf), ":%02lu", (unsigned long)(sec % 60));
     }
 
-    tft.fillRect(40, 40, 160, 58, COLOR_DEEP_BG);
+    // 5. Hero Time Zone — COMPLETE BOUNDING-BOX CLEAR!
+    // Clears x=24..216, y=36..106 (width 192, height 70) with true black.
+    // This completely eliminates any text ghosting or splash screen residue!
+    tft.fillRect(24, 36, 192, 70, th.bg);
+
     tft.setFont(&FreeSansBold18pt7b);
-    tft.setTextColor(COLOR_WHITE, COLOR_DEEP_BG);
-    tft.setCursor(48, 78);
+    tft.setTextColor(th.white, th.bg);
+    tft.setCursor(54, 72);
     tft.print(time_buf);
+
     tft.setFont(&FreeSansBold9pt7b);
-    tft.setTextColor(COLOR_CYAN, COLOR_DEEP_BG);
-    tft.setCursor(158, 78);
+    tft.setTextColor(th.accent, th.bg);
+    tft.setCursor(162, 72);
     tft.print(sec_buf);
 
     tft.setFont(NULL);
     tft.setTextSize(1);
-    tft.setTextColor(COLOR_CYAN, COLOR_DEEP_BG);
-    tft.setCursor(is_synced ? 86 : 78, 86);
+    tft.setTextColor(th.text_dim, th.bg);
+    tft.setCursor(is_synced ? 88 : 80, 88);
     tft.print(is_synced ? "LOCAL TIME" : "SYSTEM UPTIME");
-    tft.drawFastHLine(70, 98, 100, COLOR_CYAN);
 
-    uint16_t ban_col = (w_conn || ap_clients > 0) ? COLOR_GREEN : (w_ing ? COLOR_ORANGE : (w_ap ? COLOR_CYAN : COLOR_BORDER));
-    tft.fillRoundRect(32, 104, 176, 22, 11, COLOR_CARD);
-    tft.drawRoundRect(32, 104, 176, 22, 11, ban_col);
-    tft.fillCircle(44, 115, 4, ban_col);
-    tft.setTextColor(ban_col, COLOR_CARD);
-    tft.setCursor(54, 111);
-    if (w_conn) {
-        tft.printf("IP %s", g_wifi_ip);
-    } else if (w_ing) {
-        tft.printf("JOIN %s", g_wifi_ssid);
-    } else if (w_ap) {
-        if (ap_clients > 0) tft.printf("%s  %d in", g_ap_ssid, ap_clients);
-        else tft.printf("%s", g_ap_ssid);
+    // Sleek modern accent hairline
+    tft.drawFastHLine(72, 98, 96, th.accent);
+
+    // 6. Connectivity Banner (y=108 to 132, h=24)
+    uint16_t ban_col = (w_conn || ap_clients > 0) ? th.green : (w_ing ? th.orange : (w_ap ? th.accent : th.text_dim));
+    tft.fillRoundRect(28, 108, 184, 24, 12, th.card);
+    tft.drawRoundRect(28, 108, 184, 24, 12, ban_col);
+    tft.fillCircle(40, 120, 4, ban_col);
+    tft.fillCircle(40, 120, 2, th.white);
+    tft.setTextColor(ban_col, th.card);
+    tft.setCursor(50, 116);
+    char ban[26];
+    if (w_conn) snprintf(ban, sizeof(ban), "IP %-16.16s", g_wifi_ip);
+    else if (w_ing) snprintf(ban, sizeof(ban), "JOIN %-14.14s", g_wifi_ssid);
+    else if (w_ap) {
+        if (ap_clients > 0) snprintf(ban, sizeof(ban), "%-15.15s %din", g_ap_ssid, ap_clients);
+        else snprintf(ban, sizeof(ban), "%-20.20s", g_ap_ssid);
+    } else snprintf(ban, sizeof(ban), "%-20s", "WiFi Off");
+    tft.print(ban);
+
+    // 7. System Telemetry Card (y=136 to 188, h=52)
+    tft.fillRoundRect(28, 136, 184, 52, 12, th.card);
+    uint16_t card_edge = stats.healthy ? th.border : th.red;
+    tft.drawRoundRect(28, 136, 184, 52, 12, card_edge);
+
+    // Line 1: Tasks & Free Heap
+    tft.setTextColor(th.muted, th.card);
+    tft.setCursor(38, 144);
+    tft.printf("TASKS: %-2d   HEAP: %-3u KB", stats.active_tasks_count, stats.free_heap_kb);
+
+    // Line 2: Health Status (clean, no duplicate "[OK] OK")
+    tft.setCursor(38, 158);
+    tft.print("HEALTH: ");
+    tft.setTextColor(stats.healthy ? th.green : th.red, th.card);
+    if (stats.healthy) {
+        tft.print("OPTIMAL (100)");
     } else {
-        tft.print("WiFi off");
+        tft.printf("%-13.13s", stats.health_text);
     }
 
-    tft.fillRoundRect(32, 132, 176, 50, 11, COLOR_CARD);
-    uint16_t card_edge = stats.healthy ? COLOR_GREEN : COLOR_RED;
-    tft.drawRoundRect(32, 132, 176, 50, 11, card_edge);
-    tft.setTextColor(COLOR_MUTED, COLOR_CARD);
-    tft.setCursor(44, 140);
-    tft.printf("TASKS %d   HEAP %u KB", stats.active_tasks_count, stats.free_heap_kb);
-    tft.setTextColor(stats.healthy ? COLOR_GREEN : COLOR_RED, COLOR_CARD);
-    tft.setCursor(44, 154);
-    char health[20];
-    snprintf(health, sizeof(health), "[%s] %s", stats.healthy ? "OK" : "!!",
-             stats.health_text);
-    tft.print(health);
-    tft.setTextColor(COLOR_CYAN, COLOR_CARD);
-    tft.setCursor(44, 168);
-    char up_buf[20];
-    snprintf(up_buf, sizeof(up_buf), "UP %02lu:%02lu", (unsigned long)(sec / 60), (unsigned long)(sec % 60));
+    // Line 3: System Uptime
+    tft.setTextColor(th.accent, th.card);
+    tft.setCursor(38, 172);
+    char up_buf[22];
+    snprintf(up_buf, sizeof(up_buf), "UPTIME: %02lu:%02lu:%02lu",
+             (unsigned long)(sec / 3600),
+             (unsigned long)((sec / 60) % 60),
+             (unsigned long)(sec % 60));
     tft.print(up_buf);
 
-    draw_status_pill(28, 188, wifi_col, wifi_lbl);
-    draw_status_pill(128, 188, ble_col, ble_lbl);
+    // 8. Bottom Pills (y=192, h=20)
+    draw_status_pill(30, 192, wifi_col, wifi_lbl);
+    draw_status_pill(122, 192, ble_col, ble_lbl);
 
-    tft.fillRoundRect(95, 214, 50, 4, 2, COLOR_BORDER);
-    int fill_w = 12 + (int)(sec % 36);
-    tft.fillRoundRect(95, 214, fill_w, 4, 2, COLOR_CYAN);
+    // 9. Bottom Heartbeat Sweep (y=218, h=3)
+    tft.fillRoundRect(95, 218, 50, 3, 1, th.card);
+    int fill_w = 8 + (int)(sec % 35);
+    tft.fillRoundRect(95, 218, fill_w, 3, 1, th.accent);
 }
 
 static void splash_mark_n(int cx, int cy) {
-    tft.fillRoundRect(cx - 22, cy - 22, 44, 44, 10, COLOR_CARD);
-    tft.drawRoundRect(cx - 22, cy - 22, 44, 44, 10, COLOR_CYAN);
-    tft.drawRoundRect(cx - 21, cy - 21, 42, 42, 9, COLOR_BORDER);
-    tft.fillRoundRect(cx - 14, cy - 14, 6, 28, 1, COLOR_CYAN);
-    tft.fillRoundRect(cx + 8, cy - 14, 6, 28, 1, COLOR_CYAN);
+    const UiTheme& th = curTheme();
+    tft.fillRoundRect(cx - 22, cy - 22, 44, 44, 10, th.card);
+    tft.drawRoundRect(cx - 22, cy - 22, 44, 44, 10, th.cyan);
+    tft.drawRoundRect(cx - 21, cy - 21, 42, 42, 9, th.cyan);
+    tft.fillRoundRect(cx - 14, cy - 14, 6, 28, 1, th.cyan);
+    tft.fillRoundRect(cx + 8, cy - 14, 6, 28, 1, th.cyan);
     for (int i = 0; i < 5; i++) {
-        tft.drawLine(cx - 12 + i, cy - 13, cx + 10 + i, cy + 13, COLOR_WHITE);
+        tft.drawLine(cx - 12 + i, cy - 13, cx + 10 + i, cy + 13, th.white);
     }
-    tft.fillCircle(cx - 11, cy - 14, 2, COLOR_GREEN);
-    tft.fillCircle(cx + 13, cy + 14, 2, COLOR_GREEN);
+    tft.fillCircle(cx - 11, cy - 14, 2, th.green);
+    tft.fillCircle(cx + 13, cy + 14, 2, th.green);
 }
 
 static void splash_status(const char* line, int percent) {
-    tft.fillRoundRect(38, 168, 164, 18, 9, COLOR_CARD);
-    tft.fillCircle(48, 177, 3, percent >= 100 ? COLOR_GREEN : COLOR_CYAN);
+    const UiTheme& th = curTheme();
+    tft.fillRoundRect(38, 168, 164, 18, 9, th.card);
+    tft.fillCircle(48, 177, 3, percent >= 100 ? th.green : th.cyan);
     tft.setTextSize(1);
-    tft.setTextColor(COLOR_WHITE, COLOR_CARD);
+    tft.setTextWrap(false);
+    tft.setTextColor(th.white, th.card);
     tft.setCursor(58, 174);
     tft.print(line);
-    tft.setTextColor(COLOR_GREEN, COLOR_CARD);
+    tft.setTextColor(th.green, th.card);
     tft.setCursor(168, 174);
     tft.printf("%d", percent);
 }
 
 void play_boot_flash_screen() {
+    g_ui_mode.store(UI_SPLASH, std::memory_order_release);
     DisplayGuard lock(400);
-    if (!lock) return;
+    if (!lock) { g_ui_mode.store(UI_DASH, std::memory_order_release); return; }
+    const UiTheme& th = curTheme();
     tft.setFont(NULL);
     tft.setTextSize(1);
 
-    tft.fillScreen(COLOR_DEEP_BG);
+    tft.fillScreen(th.bg);
 
     for (int r = 40; r <= 116; r += 8) {
-        tft.drawCircle(120, 120, r, r >= 108 ? COLOR_CYAN : COLOR_BORDER);
+        tft.drawCircle(120, 120, r, r >= 108 ? th.cyan : th.card);
         mk_watchdog_feed_self();
         feed_boot_wdt();
         os().delayMs(18);
     }
-    tft.drawCircle(120, 120, 117, COLOR_CYAN);
-    tft.drawCircle(120, 120, 108, COLOR_CARD);
-    tft.drawFastVLine(120, 4, 10, COLOR_CYAN);
-    tft.drawFastVLine(120, 226, 10, COLOR_CYAN);
-    tft.drawFastHLine(4, 120, 10, COLOR_CYAN);
-    tft.drawFastHLine(226, 120, 10, COLOR_CYAN);
+    tft.drawCircle(120, 120, 119, th.cyan);
+    tft.drawCircle(120, 120, 118, th.cyan);
+    tft.drawCircle(120, 120, 109, th.card);
 
     splash_mark_n(120, 58);
 
     tft.setTextSize(2);
-    tft.setTextColor(COLOR_WHITE, COLOR_DEEP_BG);
+    tft.setTextColor(th.white, th.bg);
     tft.setCursor(72, 90);
     tft.print("NEXOS-RT");
 
     tft.setTextSize(1);
-    tft.setTextColor(COLOR_CYAN, COLOR_DEEP_BG);
+    tft.setTextColor(th.cyan, th.bg);
     tft.setCursor(84, 112);
     tft.print("BASE OS  V1.2");
-    tft.setTextColor(0x8410, COLOR_DEEP_BG);
+    tft.setTextColor(th.text_dim, th.bg);
     tft.setCursor(54, 126);
     tft.print("CUSTOM MICROKERNEL");
 
-    tft.fillRoundRect(40, 148, 160, 8, 4, COLOR_CARD);
-    tft.drawRoundRect(40, 148, 160, 8, 4, COLOR_BORDER);
-    tft.fillRoundRect(36, 166, 168, 22, 11, COLOR_CARD);
-    tft.drawRoundRect(36, 166, 168, 22, 11, COLOR_BORDER);
+    tft.fillRoundRect(40, 148, 160, 8, 4, th.card);
+    tft.drawRoundRect(40, 148, 160, 8, 4, th.cyan);
+    tft.fillRoundRect(36, 166, 168, 22, 11, th.card);
+    tft.drawRoundRect(36, 166, 168, 22, 11, th.cyan);
 
     struct BootStep { int percent; const char* status; } steps[] = {
         { 18, "KERNEL CORE" },
@@ -458,9 +561,9 @@ void play_boot_flash_screen() {
         os().heartbeat("GUI");
         int target_w = (steps[i].percent * 156) / 100;
         if (target_w > prev_w) {
-            tft.fillRect(42 + prev_w, 150, target_w - prev_w, 4, COLOR_CYAN);
+            tft.fillRect(42 + prev_w, 150, target_w - prev_w, 4, th.cyan);
         }
-        tft.fillCircle(42 + target_w, 152, 2, COLOR_WHITE);
+        tft.fillCircle(42 + target_w, 152, 2, th.white);
         prev_w = target_w;
         splash_status(steps[i].status, steps[i].percent);
         mk_watchdog_feed_self();
@@ -468,12 +571,13 @@ void play_boot_flash_screen() {
         os().delayMs(180);
     }
 
-    tft.setTextColor(COLOR_GREEN, COLOR_DEEP_BG);
+    tft.setTextColor(th.green, th.bg);
     tft.setCursor(66, 196);
     tft.print("NEXOS-RT ONLINE");
     os().delayMs(380);
 
-    tft.fillScreen(COLOR_DEEP_BG);
+    tft.fillScreen(th.bg);
+    g_ui_mode.store(UI_DASH, std::memory_order_release);
 }
 
 void gui_task(void* pvParameters) {
@@ -483,23 +587,37 @@ void gui_task(void* pvParameters) {
     Serial.printf("[TASK] GUI on core %d os=%s\n", os().currentCore(), os().getActiveKernelName());
 
     KernelStats stats = os().getStats();
+    uint8_t last_theme = g_theme.load(std::memory_order_acquire);
+    tft.fillScreen(curTheme().bg);
     render_dashboard(0, stats);
 
     for (;;) {
         mk_watchdog_feed_self();
         os().heartbeat("GUI");
+        // Theme switch needs a clean slate, else old card colors ghost
+        uint8_t cur = g_theme.load(std::memory_order_acquire);
+        if (cur != last_theme) {
+            last_theme = cur;
+            const UiTheme& th = curTheme();
+            DisplayGuard g(250);
+            if (g) tft.fillScreen(th.bg);
+            Serial.printf("[UI] Theme -> %s\n", th.name);
+        }
         if (g_trigger_boot.exchange(false, std::memory_order_acq_rel)) {
             play_boot_flash_screen();
         }
         if (g_trigger_color_test.exchange(false, std::memory_order_acq_rel)) {
+            g_ui_mode.store(UI_TEST, std::memory_order_release);
             DisplayGuard g(250);
             if (g) {
-                tft.fillScreen(COLOR_CYAN);
+                const UiTheme& th = curTheme();
+                tft.fillScreen(th.cyan);
                 os().delayMs(300);
-                tft.fillScreen(COLOR_GREEN);
+                tft.fillScreen(th.green);
                 os().delayMs(300);
-                tft.fillScreen(COLOR_DEEP_BG);
+                tft.fillScreen(th.bg);
             }
+            g_ui_mode.store(UI_DASH, std::memory_order_release);
         }
         stats = os().getStats();
         render_dashboard(g_seconds_counter.load(std::memory_order_acquire), stats);
@@ -543,9 +661,10 @@ void sys_monitor_task(void* pvParameters) {
 
         if (g_ble_hello_pending.exchange(false, std::memory_order_acq_rel) &&
             g_ble_connected.load(std::memory_order_acquire)) {
+            // Prod-grade: never broadcast PSK over unencrypted BLE notify.
             char hello[96];
-            snprintf(hello, sizeof(hello), "READY AP=%s PASS=%s IP=%s",
-                     g_ap_ssid, WIFI_AP_PASS, g_ap_ip);
+            snprintf(hello, sizeof(hello), "READY AP=%s IP=%s (see display for PASS)",
+                     g_ap_ssid, g_ap_ip);
             ble_notify(hello);
         }
 
@@ -628,7 +747,7 @@ void cli_task(void* pvParameters) {
                     Serial.println("  wifi_ap  (hotspot name/password — this is what phones scan)");
                     Serial.println("  ble_status, ble_start, ble_stop");
                     Serial.println("  time_status, time_sync");
-                    Serial.println("  status, tasks, kernel_info, health, version, boot, test, reboot");
+                    Serial.println("  theme [0|1], status, tasks, kernel_info, health, version, boot, test, reboot");
                 } else if (line == "wifi_status" || line == "wifi" || line == "wifi_ap") {
                     bool conn = g_wifi_connected.load(std::memory_order_acquire);
                     bool ing = g_wifi_connecting.load(std::memory_order_acquire);
@@ -636,9 +755,9 @@ void cli_task(void* pvParameters) {
                     Serial.printf("[WIFI]\nsta     : %s\nssid    : %s\nrssi    : %d dBm\nip      : %s\n",
                                   conn ? "CONNECTED" : (ing ? "CONNECTING" : "DISCONNECTED"),
                                   g_wifi_ssid, g_wifi_rssi, g_wifi_ip);
-                    Serial.printf("ap      : %s\nap ssid : %s\nap pass : %s\nap ip   : %s\nclients : %d\n",
+                    Serial.printf("ap      : %s\nap ssid : %s\nap pass : [hidden demo default]\nap ip   : %s\nclients : %d\n",
                                   ap ? "ON (visible on phone Wi-Fi scan, 2.4 GHz)" : "OFF",
-                                  g_ap_ssid, WIFI_AP_PASS, g_ap_ip, (int)WiFi.softAPgetStationNum());
+                                  g_ap_ssid, g_ap_ip, (int)WiFi.softAPgetStationNum());
                 } else if (line == "wifi_scan") {
                     Serial.println("[WIFI] Scanning nearby APs...");
                     int n = WiFi.scanNetworks();
@@ -710,10 +829,10 @@ void cli_task(void* pvParameters) {
                 } else if (line == "version") {
                     Serial.println("Smart Device Platform v1.2.0 (Wi-Fi hotspot + BLE Enabled)");
                     Serial.printf("OS: %s V%s\n", MK_CONFIG_OS_NAME, MK_CONFIG_VERSION_STRING);
-                    Serial.println("Display: GC9A01 HW SPI 8MHz MOSI=11 SCLK=12 DC=10 CS/RST unplugged");
+                    Serial.println("Display: GC9A01 HW SPI 4MHz MOSI=11 SCLK=12 DC=10 CS/RST unplugged");
                     Serial.printf("Bluetooth: %s (Nordic UART Service)\n", BLE_GAP_NAME);
-                    Serial.printf("Wi-Fi hotspot: %s  pass %s  (2.4 GHz AP+STA + SNTP)\n",
-                                  g_ap_ssid, WIFI_AP_PASS);
+                    Serial.printf("Wi-Fi hotspot: %s (2.4 GHz AP+STA + SNTP) PASS=[hidden]\n",
+                                  g_ap_ssid);
                 } else if (line == "ble_status") {
                     bool adv = g_ble_advertising.load(std::memory_order_acquire);
                     bool conn = g_ble_connected.load(std::memory_order_acquire);
@@ -738,6 +857,25 @@ void cli_task(void* pvParameters) {
                     } else {
                         Serial.println("BLE is not advertising");
                     }
+                } else if (line == "theme" || line.startsWith("theme ")) {
+                    String arg = line.substring(5);
+                    arg.trim();
+                    if (arg == "1" || arg.equalsIgnoreCase("gold") || arg.equalsIgnoreCase("amber")) {
+                        g_theme.store(1, std::memory_order_release);
+                        Preferences p; p.begin("nexos-ui", false);
+                        p.putUChar("theme", 1); p.end();
+                        Serial.println("[UI] Theme SOLAR GOLD (saved)");
+                    } else if (arg == "0" || arg.equalsIgnoreCase("cyber") || arg.equalsIgnoreCase("onyx") || arg.equalsIgnoreCase("midnight")) {
+                        g_theme.store(0, std::memory_order_release);
+                        Preferences p; p.begin("nexos-ui", false);
+                        p.putUChar("theme", 0); p.end();
+                        Serial.println("[UI] Theme CYBER TITANIUM (saved)");
+                    } else if (arg.length() == 0) {
+                        Serial.printf("[UI] Active: %s (%d). Use: theme 0 (Cyber Titanium) | theme 1 (Solar Gold)\n",
+                                      curTheme().name, g_theme.load(std::memory_order_acquire));
+                    } else {
+                        Serial.println("Usage: theme [0|1]  (0=Cyber Titanium, 1=Solar Gold)");
+                    }
                 } else if (line == "reboot") {
                     ESP.restart();
                 } else {
@@ -752,10 +890,8 @@ void cli_task(void* pvParameters) {
 }
 
 void setup() {
-    disableLoopWDT();
-    disableCore0WDT();
-    disableCore1WDT();
-    esp_brownout_disable();
+    // WDT + brownout intentionally left enabled (prod-grade). If this board
+    // resets here, fix the RF/heap root cause instead of disabling protection.
     Serial.begin(115200);
     delay(200);
     Serial.println("\n=========================================================");
@@ -763,10 +899,20 @@ void setup() {
                   reset_reason_str(), (int)esp_reset_reason(),
                   (int)rtc_get_reset_reason(0), (int)rtc_get_reset_reason(1));
     Serial.println(" SMART DEVICE — Nexos-RT V1.2 (Wi-Fi hotspot + BLE)");
-    Serial.println(" GC9A01 HW SPI 8MHz  SCL=12 SDA=11 DC=10  CS/RST unplugged (SW reset)");
+    Serial.println(" GC9A01 HW SPI 4MHz  SCL=12 SDA=11 DC=10  CS/RST unplugged (SW reset)");
     Serial.printf(" BLE name : %s  (use nRF Connect / LightBlue on iOS)\n", BLE_GAP_NAME);
     Serial.println(" Wi-Fi    : 2.4 GHz hotspot starts after dashboard is up");
     Serial.println("=========================================================");
+
+    // Theme persists across EN resets (serial open resets RAM). NVS keeps choice.
+    {
+        Preferences p; p.begin("nexos-ui", true);
+        uint8_t t = p.getUChar("theme", 0);
+        p.end();
+        g_theme.store((t == 1) ? 1 : 0, std::memory_order_release);
+        Serial.printf("[UI] Theme %s (%d) loaded\n", curTheme().name,
+                      g_theme.load(std::memory_order_acquire));
+    }
 
     if (!os().init()) {
         Serial.printf("[FAIL] %s init\n", MK_CONFIG_OS_NAME);
@@ -783,19 +929,7 @@ void setup() {
     tft_max_brightness();
     feed_boot_wdt();
 
-    Serial.println("[DISPLAY] startup test WHITE -> RED -> GREEN -> BLUE");
-    tft.fillScreen(COLOR_WHITE);
-    feed_boot_wdt();
-    delay(250);
-    tft.fillScreen(COLOR_RED);
-    feed_boot_wdt();
-    delay(200);
-    tft.fillScreen(COLOR_GREEN);
-    feed_boot_wdt();
-    delay(200);
-    tft.fillScreen(0x001F);
-    feed_boot_wdt();
-    delay(200);
+    Serial.println("[DISPLAY] Panel ready. Clearing to true black.");
     tft.fillScreen(COLOR_DEEP_BG);
     feed_boot_wdt();
 

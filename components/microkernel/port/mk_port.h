@@ -34,6 +34,7 @@ mk_port_task_handle_t mk_port_task_self(void);
 uint32_t mk_port_task_get_stack_watermark(mk_port_task_handle_t h);
 void mk_port_task_suspend(mk_port_task_handle_t h);
 void mk_port_task_resume(mk_port_task_handle_t h);
+void mk_port_task_set_priority(mk_port_task_handle_t h, uint8_t mk_prio);
 
 // Event port
 typedef void* mk_port_event_group_handle_t;

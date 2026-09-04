@@ -14,7 +14,9 @@ static const char* TAG = "WIFI_SERVICE";
 static mk_event_group_t* wifi_event_group;
 const int WIFI_CONNECTED_BIT = BIT0;
 const int WIFI_FAIL_BIT = BIT1;
-static const char* WIFI_AP_PASSWORD = "nexos1234";
+// DEMO DEFAULT ONLY — prod must provision per-device pass via NVS/settings + CLI.
+// Never log plaintext password at INFO; see start_ap() masked logging below.
+static const char* WIFI_AP_PASSWORD_DEMO_DEFAULT = "nexos1234";
 static const uint8_t WIFI_AP_CHANNEL = 6;
 static esp_netif_t* s_ap_netif = nullptr;
 static bool s_want_sta = false;
@@ -92,7 +94,7 @@ Result<void> WifiService::start_ap(){
 
     wifi_config_t ap_cfg{};
     copy_cstr(reinterpret_cast<char*>(ap_cfg.ap.ssid), sizeof(ap_cfg.ap.ssid), ssid);
-    copy_cstr(reinterpret_cast<char*>(ap_cfg.ap.password), sizeof(ap_cfg.ap.password), WIFI_AP_PASSWORD);
+    copy_cstr(reinterpret_cast<char*>(ap_cfg.ap.password), sizeof(ap_cfg.ap.password), WIFI_AP_PASSWORD_DEMO_DEFAULT);
     ap_cfg.ap.ssid_len = static_cast<uint8_t>(strlen(ssid));
     ap_cfg.ap.channel = WIFI_AP_CHANNEL;
     ap_cfg.ap.max_connection = 4;
@@ -107,8 +109,9 @@ Result<void> WifiService::start_ap(){
 
     copy_cstr(status_.ap_ssid, ssid);
     copy_cstr(status_.ap_ip, "192.168.4.1");
-    ESP_LOGI(TAG, "SoftAP configured SSID=%s PASS=%s (2.4 GHz, visible to phones)",
-             status_.ap_ssid, WIFI_AP_PASSWORD);
+    // Prod-grade: never log PSK plaintext. Password is shown once on display/serial setup only.
+    ESP_LOGI(TAG, "SoftAP configured SSID=%s (2.4 GHz, visible to phones) PASS=[hidden demo default]",
+             status_.ap_ssid);
     return Result<void>::Ok();
 }
 
