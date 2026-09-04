@@ -1,6 +1,8 @@
 #include "mk_scheduler.h"
 #include "mk_kernel.h"
 #include "mk_port.h"
+#include "mk_enclave.h"
+#include "mk_fault.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include <string.h>
@@ -48,15 +50,44 @@ void mk_scheduler_add_ready(mk_task_t* task){
     // Reset time slice if exhausted
     if(task->time_slice == 0) task->time_slice = MK_QUANTUM_TICKS;
 
-    // Append to tail of doubly linked ready queue
-    task->prev = s_ready_tails[prio];
-    task->next = NULL;
-    if(s_ready_tails[prio]) {
-        s_ready_tails[prio]->next = task;
+    // V2: Earliest Deadline First (EDF) within same priority
+    if(task->deadline_us > 0 && s_ready_heads[prio] != NULL) {
+        mk_task_t* cur = s_ready_heads[prio];
+        mk_task_t* prev = NULL;
+        while(cur && (cur->deadline_us > 0 && cur->deadline_us <= task->deadline_us)) {
+            prev = cur;
+            cur = cur->next;
+        }
+        if(!prev) {
+            // Insert at head
+            task->next = s_ready_heads[prio];
+            task->prev = NULL;
+            s_ready_heads[prio]->prev = task;
+            s_ready_heads[prio] = task;
+        } else if(!cur) {
+            // Append to tail
+            task->prev = s_ready_tails[prio];
+            task->next = NULL;
+            s_ready_tails[prio]->next = task;
+            s_ready_tails[prio] = task;
+        } else {
+            // Insert in middle
+            task->prev = prev;
+            task->next = cur;
+            prev->next = task;
+            cur->prev = task;
+        }
     } else {
-        s_ready_heads[prio] = task;
+        // Legacy FIFO / Round-Robin append to tail
+        task->prev = s_ready_tails[prio];
+        task->next = NULL;
+        if(s_ready_tails[prio]) {
+            s_ready_tails[prio]->next = task;
+        } else {
+            s_ready_heads[prio] = task;
+        }
+        s_ready_tails[prio] = task;
     }
-    s_ready_tails[prio] = task;
 
     s_ready_bitmap |= (1u << prio);
     s_ready_count++;
@@ -190,6 +221,41 @@ void mk_scheduler_tick(uint64_t now_ms){
         s_current_task->runtime_ticks++;
         if(s_current_task->time_slice > 0){
             s_current_task->time_slice--;
+        }
+
+        // V2 Budget Enforcement (Claims 2, 7)
+        if(s_current_task->budget_us > 0){
+            if(s_current_task->remaining_budget_us > 1000){
+                s_current_task->remaining_budget_us -= 1000;
+            } else {
+                s_current_task->remaining_budget_us = 0;
+                if(s_current_task->enclave_desc){
+                    mk_enclave_desc_t* enc = (mk_enclave_desc_t*)s_current_task->enclave_desc;
+                    mk_fault_log((uint8_t)enc->id, MK_FAULT_BUDGET_EXHAUSTED, 0x0003, 0, 0, enc->budget_us);
+                    // Trap and suspend overrun task
+                    enc->state = MK_ENCLAVE_FAILED;
+                    mk_scheduler_remove_ready(s_current_task);
+                    s_current_task->state = MK_TASK_BLOCKED;
+                }
+            }
+        }
+
+        // V2 RT-preempts-INFER deferral (Claim 2)
+        if(s_current_task->enclave_desc){
+            mk_enclave_desc_t* enc = (mk_enclave_desc_t*)s_current_task->enclave_desc;
+            if(enc->type == MK_ENCLAVE_TYPE_INFER){
+                // Check if any higher/equal priority RT task is waiting with imminent deadline
+                for(int p = MK_CONFIG_MAX_PRIORITIES - 1; p >= (int)s_current_task->priority; p--){
+                    if(s_ready_heads[p] && s_ready_heads[p]->enclave_desc){
+                        mk_enclave_desc_t* top_enc = (mk_enclave_desc_t*)s_ready_heads[p]->enclave_desc;
+                        if(top_enc->type == MK_ENCLAVE_TYPE_RT && top_enc->deadline_us > 0 && top_enc->deadline_us < 5000){
+                            // Yield infer task in favor of imminent RT deadline
+                            s_current_task->time_slice = 0;
+                            break;
+                        }
+                    }
+                }
+            }
         }
 
         // Round-robin quantum expired: rotate within same priority

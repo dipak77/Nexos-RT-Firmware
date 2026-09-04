@@ -14,6 +14,8 @@ mk_status_t mk_mutex_unlock(mk_mutex_t* mutex);
 bool mk_mutex_is_locked(mk_mutex_t* mutex);
 const char* mk_mutex_get_name(mk_mutex_t* mutex);
 void* mk_mutex_get_owner(mk_mutex_t* mutex);
+mk_status_t mk_mutex_mark_owner_dead(mk_mutex_t* mutex);
+void mk_mutex_reclaim_for_task(mk_task_t* task);
 
 #ifdef __cplusplus
 }

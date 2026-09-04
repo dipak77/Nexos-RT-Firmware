@@ -1,0 +1,10 @@
+idf_component_register(
+    SRCS
+        "nexos_pthread.c"
+        "nexos_mqueue.c"
+    INCLUDE_DIRS
+        "include"
+    REQUIRES
+        microkernel
+        esp_timer
+)

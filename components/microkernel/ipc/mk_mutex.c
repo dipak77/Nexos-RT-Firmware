@@ -12,12 +12,16 @@
 // Native Priority-Inheritance Mutex
 struct mk_mutex {
     volatile int locked;
+    volatile int owner_dead;
     uint32_t recursion_count;
     char name[32];
     void* owner;
     mk_task_t* owner_tcb;
     uint8_t original_prio;
+    struct mk_mutex* next;
 };
+
+static mk_mutex_t* s_mutex_list_head = NULL;
 
 mk_mutex_t* mk_mutex_create(const char* name){
     mk_mutex_t* m = (mk_mutex_t*)heap_caps_malloc(sizeof(mk_mutex_t), MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT);
@@ -25,18 +29,65 @@ mk_mutex_t* mk_mutex_create(const char* name){
     if(!m) return NULL;
     memset(m, 0, sizeof(*m));
     m->locked = 0;
+    m->owner_dead = 0;
     m->recursion_count = 0;
     m->owner = NULL;
     m->owner_tcb = NULL;
     m->original_prio = 0;
     if(name) strncpy(m->name, name, sizeof(m->name)-1);
+
+    mk_port_enter_critical();
+    m->next = s_mutex_list_head;
+    s_mutex_list_head = m;
+    mk_port_exit_critical();
     return m;
 }
 
 mk_status_t mk_mutex_delete(mk_mutex_t* mutex){
     if(!mutex) return MK_ERR_INVALID;
+    mk_port_enter_critical();
+    if(s_mutex_list_head == mutex){
+        s_mutex_list_head = mutex->next;
+    } else {
+        mk_mutex_t* cur = s_mutex_list_head;
+        while(cur && cur->next != mutex){
+            cur = cur->next;
+        }
+        if(cur) cur->next = mutex->next;
+    }
+    mk_port_exit_critical();
+
     heap_caps_free(mutex);
     return MK_OK;
+}
+
+mk_status_t mk_mutex_mark_owner_dead(mk_mutex_t* mutex){
+    if(!mutex) return MK_ERR_INVALID;
+    mk_port_enter_critical();
+    mutex->owner_dead = 1;
+    mutex->locked = 0;
+    mutex->recursion_count = 0;
+    mutex->owner = NULL;
+    mutex->owner_tcb = NULL;
+    mk_port_exit_critical();
+    return MK_OK;
+}
+
+void mk_mutex_reclaim_for_task(mk_task_t* task){
+    if(!task) return;
+    mk_port_enter_critical();
+    mk_mutex_t* cur = s_mutex_list_head;
+    while(cur){
+        if(cur->owner_tcb == task){
+            cur->owner_dead = 1;
+            cur->locked = 0;
+            cur->recursion_count = 0;
+            cur->owner = NULL;
+            cur->owner_tcb = NULL;
+        }
+        cur = cur->next;
+    }
+    mk_port_exit_critical();
 }
 
 mk_status_t mk_mutex_lock(mk_mutex_t* mutex, uint32_t timeout_ms){
@@ -45,15 +96,17 @@ mk_status_t mk_mutex_lock(mk_mutex_t* mutex, uint32_t timeout_ms){
     mk_task_t* self_tcb = mk_scheduler_current_task();
 
     mk_port_enter_critical();
-    // Fast path 1: Uncontended
-    if(!mutex->locked){
+    bool was_owner_dead = (mutex->owner_dead != 0);
+    // Fast path 1: Uncontended or recovered from dead owner
+    if(!mutex->locked || was_owner_dead){
         mutex->locked = 1;
+        mutex->owner_dead = 0;
         mutex->recursion_count = 1;
         mutex->owner = self;
         mutex->owner_tcb = self_tcb;
         if(self_tcb) mutex->original_prio = self_tcb->priority;
         mk_port_exit_critical();
-        return MK_OK;
+        return was_owner_dead ? MK_ERR_DEADLOCK_OWNER_DEAD : MK_OK;
     }
 
     // Fast path 2: Recursive acquisition by owner
@@ -199,4 +252,6 @@ bool mk_mutex_is_locked(mk_mutex_t* mutex){
 }
 const char* mk_mutex_get_name(mk_mutex_t* mutex){ return mutex ? mutex->name : ""; }
 void* mk_mutex_get_owner(mk_mutex_t* mutex){ return mutex && mutex->handle ? (void*)xSemaphoreGetMutexHolder(mutex->handle) : NULL; }
+mk_status_t mk_mutex_mark_owner_dead(mk_mutex_t* mutex){ (void)mutex; return MK_OK; }
+void mk_mutex_reclaim_for_task(mk_task_t* task){ (void)task; }
 #endif

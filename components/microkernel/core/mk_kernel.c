@@ -26,6 +26,10 @@ const char* mk_status_to_string(mk_status_t s){
         case MK_ERR_BAD_STATE: return "BAD_STATE";
         case MK_ERR_DEADLOCK: return "DEADLOCK";
         case MK_ERR_INTERRUPTED: return "INTERRUPTED";
+        case MK_ERR_DEADLOCK_OWNER_DEAD: return "OWNER_DEAD";
+        case MK_ERR_PEER_TERMINATED: return "PEER_TERMINATED";
+        case MK_ERR_CAPABILITY: return "CAPABILITY_VIOLATION";
+        case MK_ERR_SVC_FAULT: return "SVC_FAULT";
         default: return "ERROR";
     }
 }

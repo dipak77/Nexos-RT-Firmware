@@ -12,6 +12,9 @@
 #include "mk_timer.h"
 #include "mk_memory.h"
 #include "mk_diagnostics.h"
+#include "mk_enclave.h"
+#include "mk_svc.h"
+#include "mk_fault.h"
 
 // Optional C++ wrappers
 #ifdef __cplusplus

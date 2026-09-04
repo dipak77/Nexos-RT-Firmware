@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "simulator"))
 sys.path.insert(0, str(Path(__file__).parent))
 from run_simulator import DeviceState, CommandEngine, FW_VERSION, KERNEL_VERSION
 from test_nexos_base_os import TestNexosBaseOS
+from test_nexos_v2_architecture import TestNexosV2Architecture
 
 class TestSmartDevicePlatform(unittest.TestCase):
     def setUp(self):

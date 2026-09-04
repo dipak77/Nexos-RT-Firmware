@@ -331,6 +331,40 @@ void CommandRegistry::register_builtin_commands(){
                  (unsigned long)kstats.total_tasks, (unsigned long long)kstats.context_switches, (unsigned long)kstats.free_heap);
         return CommandResult{0, CommandId::GET_STATUS, CommandStatus::SUCCESS, "kernel stats", buf, 0, 0};
     }});
+
+    // Nexos-RT V2 Enterprise Diagnostics & Fault Telemetry CLI
+    register_command({CommandId::GET_STATUS, "enclave_show", "Dump capability enclaves", "enclave show", [](auto args){
+        mk_enclave_dump_status();
+        return CommandResult{0, CommandId::GET_STATUS, CommandStatus::SUCCESS, "enclave show", "Dumped enclaves to console", 0, 0};
+    }});
+
+    register_command({CommandId::GET_STATUS, "enclave_reset", "Reset enclave by ID", "enclave reset <id>", [](auto args){
+        if(args.empty()) return CommandResult{0, CommandId::GET_STATUS, CommandStatus::INVALID, "enclave reset", "Usage: enclave reset <0-3>", 4002, 0};
+        uint32_t id = (uint32_t)atoi(args[0].c_str());
+        mk_status_t st = mk_enclave_reset(id);
+        return CommandResult{0, CommandId::GET_STATUS, st == MK_OK ? CommandStatus::SUCCESS : CommandStatus::FAILED, "enclave reset", st == MK_OK ? "Enclave reset OK" : "Reset failed", (int)st, 0};
+    }});
+
+    register_command({CommandId::GET_STATUS, "fault_show", "Dump structured SRAM fault ring", "fault show", [](auto args){
+        mk_fault_dump();
+        char buf[64];
+        snprintf(buf, sizeof(buf), "Total recorded faults: %lu", (unsigned long)mk_fault_get_total_count());
+        return CommandResult{0, CommandId::GET_STATUS, CommandStatus::SUCCESS, "fault show", buf, 0, 0};
+    }});
+
+    register_command({CommandId::GET_STATUS, "fault_clear", "Clear fault ring", "fault clear", [](auto args){
+        mk_fault_clear();
+        return CommandResult{0, CommandId::GET_STATUS, CommandStatus::SUCCESS, "fault clear", "Fault ring cleared", 0, 0};
+    }});
+
+    register_command({CommandId::GET_STATUS, "wdt_show", "Show watchdog timers and ages", "wdt show", [](auto args){
+        char buf[256];
+        snprintf(buf, sizeof(buf), "GUI WDT: %lu ms | SYSTEM WDT: %lu ms | COMMAND WDT: %lu ms",
+                 (unsigned long)mk_watchdog_age_ms("GUI"),
+                 (unsigned long)mk_watchdog_age_ms("SYSTEM"),
+                 (unsigned long)mk_watchdog_age_ms("COMMAND"));
+        return CommandResult{0, CommandId::GET_STATUS, CommandStatus::SUCCESS, "wdt show", buf, 0, 0};
+    }});
 }
 
 } // namespace command

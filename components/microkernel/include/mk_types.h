@@ -24,6 +24,10 @@ typedef enum {
     MK_ERR_BAD_STATE = 1011,
     MK_ERR_DEADLOCK = 1012,
     MK_ERR_INTERRUPTED = 1013,
+    MK_ERR_DEADLOCK_OWNER_DEAD = 1014,
+    MK_ERR_PEER_TERMINATED = 1015,
+    MK_ERR_CAPABILITY = 1016,
+    MK_ERR_SVC_FAULT = 1017,
 } mk_status_t;
 
 typedef enum {
@@ -49,6 +53,11 @@ typedef struct mk_task {
     uint64_t wake_tick;
     uint64_t runtime_ticks;
     int core_affinity;
+    /* V2 Architecture: Enclave & Timing Contracts */
+    void* enclave_desc;
+    uint32_t deadline_us;
+    uint32_t budget_us;
+    uint32_t remaining_budget_us;
     struct mk_task* next;
     struct mk_task* prev;
 } mk_task_t;
