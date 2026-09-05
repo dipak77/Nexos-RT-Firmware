@@ -23,7 +23,10 @@ idf_component_register(
         "arch/esp32s3/mk_ipi.c"
         "arch/esp32s3/mk_watchpoint.c"
         "port/native/mk_port_native.c"
-        "port/native/mk_context.S"
+        # port/native/mk_context.S EXCLUDED until rewritten against the Xtensa
+        # windowed ABI with a loopback test. The current stub saves neither
+        # WINDOWBASE/WINDOWSTART nor EPC/EXCSAVE, is never called, and is not
+        # assembled in the Arduino build. See docs/REDESIGNED_NEXOS_RT_V2_SDK_ARCHITECTURE.md.
         "port/freertos/mk_port_freertos.c"
     INCLUDE_DIRS "include" "arch/esp32s3" "port" "port/native" "port/freertos"
     REQUIRES freertos esp_timer esp_common common heap esp_system esp_ipc

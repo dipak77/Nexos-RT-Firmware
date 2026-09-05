@@ -38,9 +38,13 @@ int nexos_pthread_mutex_lock(nexos_pthread_mutex_t* mutex) {
         int r = nexos_pthread_mutex_init(mutex, NULL);
         if (r != 0) return r;
     }
+    // Recovery acquisition returns MK_OK; report EOWNERDEAD (pthread semantics:
+    // lock acquired, protected state inconsistent) when the flag is set.
+    bool dead = false;
     mk_status_t st = mk_mutex_lock(mutex->native_mutex, 0xFFFFFFFF);
-    if (st == MK_OK) return 0;
-    if (st == MK_ERR_DEADLOCK_OWNER_DEAD) return EOWNERDEAD;
+    if (st == MK_OK) dead = mk_mutex_was_owner_dead(mutex->native_mutex);
+    if (st == MK_OK && !dead) return 0;
+    if (st == MK_OK && dead) return EOWNERDEAD;
     return EBUSY;
 }
 

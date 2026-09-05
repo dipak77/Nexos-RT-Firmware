@@ -119,6 +119,15 @@ mk_status_t mk_enclave_reset(uint32_t id);
 uint32_t mk_enclave_get_live_count(void);
 
 /**
+ * @brief 10Hz budget sampler (called from scheduler tick tail, outside locks).
+ * Matches each budgeted LIVE enclave against its REAL FreeRTOS run-time
+ * counter via the port layer. On exhaust: FAILED + fault log + real suspend.
+ * Dormant when run-time stats are disabled (all deltas read 0) or when no
+ * enclave carries budget_us > 0. Never allocates; never blocks.
+ */
+void mk_enclave_sample_budgets(void);
+
+/**
  * @brief Print status of all enclaves to console.
  */
 void mk_enclave_dump_status(void);

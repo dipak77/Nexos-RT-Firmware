@@ -20,7 +20,10 @@
 #include <BLEUtils.h>
 #include <BLE2902.h>
 #include "kernel_manager.h"
+#include "mk_enclave.h"
+#include "mk_fault.h"
 #include "esp_system.h"
+#include "esp_timer.h"
 #include "rom/rtc.h"
 
 // Prod-grade: keep HW WDT + brownout enabled. Boot feeds via yield() + delay.
@@ -721,6 +724,19 @@ void sys_monitor_task(void* pvParameters) {
     }
 }
 
+// Sacrificial budget-drill burner: tight ALU loop, no yield, 2s self-cap.
+// Runs at low prio so SYSTEM/CLI/GUI preempt it; accumulates real run-time
+// until the 10Hz sampler traps the 8ms budget. No watchdog registered.
+static void drill_burn_task(void* arg) {
+    (void)arg;
+    volatile uint32_t x = 0;
+    uint64_t until = (uint64_t)esp_timer_get_time() + 2000000ULL;
+    while ((int64_t)((uint64_t)esp_timer_get_time() - until) < 0) {
+        x += (x ^ 0x9E3779B9u) + 1u;
+    }
+    (void)x;
+}
+
 void cli_task(void* pvParameters) {
     (void)pvParameters;
     mk_watchdog_feed_self();
@@ -748,6 +764,7 @@ void cli_task(void* pvParameters) {
                     Serial.println("  ble_status, ble_start, ble_stop");
                     Serial.println("  time_status, time_sync");
                     Serial.println("  theme [0|1], status, tasks, kernel_info, health, version, boot, test, reboot");
+                    Serial.println("  enclave_show, enclave_drill, fault_show, fault_clear, wdt_show  (V2 kernel)");
                 } else if (line == "wifi_status" || line == "wifi" || line == "wifi_ap") {
                     bool conn = g_wifi_connected.load(std::memory_order_acquire);
                     bool ing = g_wifi_connecting.load(std::memory_order_acquire);
@@ -876,6 +893,51 @@ void cli_task(void* pvParameters) {
                     } else {
                         Serial.println("Usage: theme [0|1]  (0=Cyber Titanium, 1=Solar Gold)");
                     }
+                } else if (line == "enclave_show") {
+                    mk_enclave_dump_status();
+                    Serial.printf("Live enclaves: %lu / %d (GUI/SYSTEM/CLI bound at boot)\n",
+                                  (unsigned long)mk_enclave_get_live_count(), MK_MAX_ENCLAVES);
+                } else if (line == "fault_show") {
+                    mk_fault_dump();
+                    Serial.printf("Total recorded faults: %lu\n",
+                                  (unsigned long)mk_fault_get_total_count());
+                } else if (line == "fault_clear") {
+                    mk_fault_clear();
+                    Serial.println("Fault ring cleared");
+                } else if (line == "enclave_drill") {
+                    // Budget-trap proof on a sacrificial INFER enclave (8ms budget,
+                    // low prio 2 burner, 10Hz sampler). Never touches boot tasks.
+                    // SKIP (not FAIL) when the toolchain has run-time stats off.
+                    uint32_t f0 = mk_fault_get_total_count();
+                    mk_enclave_desc_t* dd = mk_enclave_create("DRILL", 2, MK_ENCLAVE_TYPE_INFER,
+                                                             0, 0, 4096, MK_CAP_NONE, 8000, 0);
+                    if (!dd) {
+                        Serial.println("[DRILL] SKIP no free enclave slot");
+                    } else if (mk_enclave_start(dd, drill_burn_task, nullptr) != MK_OK) {
+                        Serial.println("[DRILL] FAIL task start");
+                        mk_enclave_reclaim(dd);
+                    } else {
+                        bool trapped = false;
+                        for (int i = 0; i < 30; i++) {
+                            mk_watchdog_feed_self(); // drill waits 3s; keep CLI watchdog happy
+                            os().delayMs(100);
+                            if (dd->state == MK_ENCLAVE_FAILED) { trapped = true; break; }
+                        }
+                        uint32_t f1 = mk_fault_get_total_count();
+                        mk_enclave_reset(dd->id); // reclaim slot whatever the outcome
+                        if (trapped && f1 > f0) {
+                            Serial.println("[DRILL] PASS budget trap + fault logged + reclaimed");
+                        } else if (f1 == f0 && !trapped) {
+                            Serial.println("[DRILL] SKIP run-time stats unavailable (deltas read 0)");
+                        } else {
+                            Serial.println("[DRILL] FAIL no trap within 3s");
+                        }
+                    }
+                } else if (line == "wdt_show") {
+                    Serial.printf("GUI WDT: %lu ms | SYSTEM WDT: %lu ms | CLI WDT: %lu ms\n",
+                                  (unsigned long)mk_watchdog_age_ms("GUI"),
+                                  (unsigned long)mk_watchdog_age_ms("SYSTEM"),
+                                  (unsigned long)mk_watchdog_age_ms("CLI"));
                 } else if (line == "reboot") {
                     ESP.restart();
                 } else {
@@ -918,6 +980,13 @@ void setup() {
         Serial.printf("[FAIL] %s init\n", MK_CONFIG_OS_NAME);
         return;
     }
+
+    // V2 enclave manager + fault ring (also inits fault ring). Boot tasks
+    // (GUI, SYSTEM, CLI) are bound to dedicated enclaves during os().startTasks()
+    // via mk_enclave_create() + mk_enclave_start().
+    mk_enclave_init();
+    Serial.printf("[ENCLAVE] manager ready, live=%lu/%d\n",
+                  (unsigned long)mk_enclave_get_live_count(), MK_MAX_ENCLAVES);
 
     Serial.printf("[DISPLAY] Adafruit GC9A01A hardware SPI begin at %lu Hz\n",
                   (unsigned long)TFT_SPI_HZ);

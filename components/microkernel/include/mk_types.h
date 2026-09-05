@@ -24,7 +24,7 @@ typedef enum {
     MK_ERR_BAD_STATE = 1011,
     MK_ERR_DEADLOCK = 1012,
     MK_ERR_INTERRUPTED = 1013,
-    MK_ERR_DEADLOCK_OWNER_DEAD = 1014,
+    MK_ERR_DEADLOCK_OWNER_DEAD = 1014, // retained for ABI compat; superseded by mk_mutex_was_owner_dead() (lock returns MK_OK)
     MK_ERR_PEER_TERMINATED = 1015,
     MK_ERR_CAPABILITY = 1016,
     MK_ERR_SVC_FAULT = 1017,

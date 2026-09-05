@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 #include "mk.h"
+#include "mk_enclave.h"
 
 struct KernelStats {
     const char* os_name;
@@ -44,15 +45,23 @@ public:
     mk_task_handle_t cliHandle() const { return cli_; }
 
 private:
-    KernelManager() : initialized(false), display_lock_(nullptr), gui_(nullptr), sys_(nullptr), cli_(nullptr) {}
+    KernelManager() : initialized(false), display_lock_(nullptr), gui_(nullptr), sys_(nullptr), cli_(nullptr),
+                      gui_enc_(nullptr), sys_enc_(nullptr), cli_enc_(nullptr) {}
     bool initialized;
     mk_mutex_t* display_lock_;
     mk_task_handle_t gui_;
     mk_task_handle_t sys_;
     mk_task_handle_t cli_;
+    // V2 bound enclaves (1:1 with tasks above). Rollback reclaims these, which
+    // deletes the task and frees the slot — never raw-delete a bound task.
+    mk_enclave_desc_t* gui_enc_;
+    mk_enclave_desc_t* sys_enc_;
+    mk_enclave_desc_t* cli_enc_;
 
-    mk_task_handle_t spawn(const char* name, uint8_t prio, size_t stack, int core, mk_task_entry_t entry);
+    mk_task_handle_t spawn(const char* name, uint8_t prio, size_t stack, int core, mk_task_entry_t entry,
+                           uint8_t enc_type, uint32_t enc_caps);
     void rollback();
+    void rollback_one(const char* wdt_name, mk_task_handle_t& task, mk_enclave_desc_t*& enc);
 };
 
 class DisplayGuard {

@@ -43,6 +43,22 @@ void mk_port_task_set_priority(mk_port_task_handle_t h, uint8_t mk_prio){
     extern uint32_t mk_map_port_priority(uint8_t);
     vTaskPrioritySet((TaskHandle_t)h, mk_map_port_priority(mk_prio));
 }
+extern UBaseType_t uxTaskGetSystemState(TaskStatus_t *pxTaskStatusArray, UBaseType_t uxArraySize, uint32_t *pulTotalRunTime) __attribute__((weak));
+static TaskStatus_t s_runtime_table[40];
+bool mk_port_task_runtime(mk_port_task_handle_t h, uint32_t *out_ticks){
+    if(!h || !out_ticks) return false;
+    if(uxTaskGetSystemState == NULL) return false; // toolchain w/o trace: dormant
+    UBaseType_t n = uxTaskGetNumberOfTasks();
+    if(n == 0 || n > 40) return false;
+    UBaseType_t got = uxTaskGetSystemState(s_runtime_table, 40, NULL);
+    for(UBaseType_t i = 0; i < got; i++){
+        if(s_runtime_table[i].xHandle == (TaskHandle_t)h){
+            *out_ticks = s_runtime_table[i].ulRunTimeCounter;
+            return true;
+        }
+    }
+    return false;
+}
 
 mk_port_event_group_handle_t mk_port_event_create(const char* name){ (void)name; return (mk_port_event_group_handle_t)xEventGroupCreate(); }
 void mk_port_event_delete(mk_port_event_group_handle_t h){ vEventGroupDelete((EventGroupHandle_t)h); }

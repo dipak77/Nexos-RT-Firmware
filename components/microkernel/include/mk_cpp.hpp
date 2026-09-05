@@ -41,14 +41,17 @@ class LockGuard {
 public:
     explicit LockGuard(Mutex& m, uint32_t timeout_ms = 0xFFFFFFFF) : mutex_(m) {
         status_ = mutex_.lock(timeout_ms);
+        // Recovery acquisition returns MK_OK; capture death flag BEFORE unlock
+        // consumes it (unlock clears the sticky flag).
+        owner_dead_ = (status_ == MK_OK) && mk_mutex_was_owner_dead(mutex_.native_handle());
     }
     ~LockGuard() {
-        if (status_ == MK_OK || status_ == MK_ERR_DEADLOCK_OWNER_DEAD) {
+        if (status_ == MK_OK) {
             mutex_.unlock();
         }
     }
-    bool locked() const { return status_ == MK_OK || status_ == MK_ERR_DEADLOCK_OWNER_DEAD; }
-    bool was_owner_dead() const { return status_ == MK_ERR_DEADLOCK_OWNER_DEAD; }
+    bool locked() const { return status_ == MK_OK; }
+    bool was_owner_dead() const { return owner_dead_; }
     mk_status_t status() const { return status_; }
     explicit operator bool() const { return locked(); }
 
@@ -57,6 +60,7 @@ public:
 private:
     Mutex& mutex_;
     mk_status_t status_;
+    bool owner_dead_{false};
 };
 
 /**

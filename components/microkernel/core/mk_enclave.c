@@ -6,6 +6,7 @@
 #include "mk_watchpoint.h"
 #include "mk_mutex.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include <string.h>
 #include <stdio.h>
 
@@ -227,10 +228,65 @@ uint32_t mk_enclave_get_live_count(void) {
     return count;
 }
 
+// Previous run-time counter per slot for delta accounting. Static, no alloc.
+static uint32_t s_prev_runtime[MK_MAX_ENCLAVES] = {0};
+static bool s_prev_valid[MK_MAX_ENCLAVES] = {false};
+
+void mk_enclave_sample_budgets(void) {
+    // Snapshot budgeted LIVE enclaves + their backend handles under one lock.
+    struct { mk_enclave_desc_t* desc; mk_task_handle_t task; void* port; } items[MK_MAX_ENCLAVES];
+    int n = 0;
+    mk_port_enter_critical();
+    for (uint32_t i = 0; i < MK_MAX_ENCLAVES; i++) {
+        if (s_enclaves[i].state == MK_ENCLAVE_LIVE &&
+            s_enclaves[i].budget_us > 0 && s_enclaves[i].task_handle) {
+            items[n].desc = &s_enclaves[i];
+            items[n].task = s_enclaves[i].task_handle;
+            items[n].port = mk_task_get_port_handle(s_enclaves[i].task_handle);
+            n++;
+        }
+    }
+    mk_port_exit_critical();
+    if (n == 0) return;
+
+    for (int k = 0; k < n; k++) {
+        uint32_t total = 0;
+        if (!items[k].port || !mk_port_task_runtime(items[k].port, &total)) continue;
+        uint32_t id = items[k].desc->id;
+        if (id >= MK_MAX_ENCLAVES) continue;
+        if (!s_prev_valid[id]) { s_prev_runtime[id] = total; s_prev_valid[id] = true; continue; }
+        uint32_t delta = (total >= s_prev_runtime[id]) ? (total - s_prev_runtime[id]) : 0;
+        s_prev_runtime[id] = total;
+        if (delta == 0) continue; // stats disabled or task idle: dormant, honest
+
+        bool exhausted = false;
+        mk_port_enter_critical();
+        // Re-validate liveness: trap path may have raced us (single-threaded
+        // timer context vs preempting app task, so re-check under lock).
+        if (items[k].desc->state == MK_ENCLAVE_LIVE) {
+            if (delta >= items[k].desc->remaining_budget_us) {
+                items[k].desc->remaining_budget_us = 0;
+                items[k].desc->state = MK_ENCLAVE_FAILED;
+                exhausted = true;
+            } else {
+                items[k].desc->remaining_budget_us -= delta;
+            }
+        }
+        mk_port_exit_critical();
+        if (exhausted) {
+            mk_fault_log((uint8_t)id, MK_FAULT_BUDGET_EXHAUSTED, 0x0003, 0, 0, items[k].desc->budget_us);
+            ESP_LOGE(TAG, "BUDGET TRAP enclave [%s] id=%lu budget=%luus exhausted by run-time delta=%lu",
+                     items[k].desc->name, (unsigned long)id,
+                     (unsigned long)items[k].desc->budget_us, (unsigned long)delta);
+            mk_task_suspend(items[k].task); // real enforcement: stops execution
+        }
+    }
+}
+
 void mk_enclave_dump_status(void) {
     printf("\n=== Nexos-RT V2 Capability Enclaves ===\n");
-    printf("ID | NAME        | STATE   | PRIO | TYPE  | CAPS       | BUDGET(us) | MUTEX_MASK\n");
-    printf("---+-------------+---------+------+-------+------------+------------+-----------\n");
+    printf("ID | NAME        | STATE   | PRIO | TYPE  | CAPS       | BUDGET REM | STKFREE | MUTEX_MASK\n");
+    printf("---+-------------+---------+------+-------+------------+------------+---------+-----------\n");
     for (uint32_t i = 0; i < MK_MAX_ENCLAVES; i++) {
         const char* st = "FREE";
         switch (s_enclaves[i].state) {
@@ -240,15 +296,38 @@ void mk_enclave_dump_status(void) {
             case MK_ENCLAVE_RECLAIMING: st = "RECLAIM"; break;
             default: break;
         }
-        printf("%2lu | %-11s | %-7s | %4u | %-5s | 0x%08lX | %10lu | 0x%08lX\n",
+        // Memory + budget criteria per enclave: stack watermark + remaining
+        // budget. Unbound/absent tasks show dashes (honest, not fabricated).
+        char stk[10], bgt[12];
+        snprintf(stk, sizeof(stk), "-");
+        snprintf(bgt, sizeof(bgt), "-");
+        if (s_enclaves[i].state == MK_ENCLAVE_LIVE && s_enclaves[i].task_handle) {
+            mk_task_info_t info;
+            if (mk_task_get_info(s_enclaves[i].task_handle, &info) == MK_OK) {
+                // Clamp: some ports report words-vs-bytes differently; a free
+                // count above the configured stack is meaningless — show config.
+                unsigned long free = (unsigned long)info.stack_high_watermark;
+                unsigned long cfg = (unsigned long)s_enclaves[i].stack_size;
+                if (free > cfg) free = cfg;
+                snprintf(stk, sizeof(stk), "%lu", free);
+            }
+            if (s_enclaves[i].budget_us > 0) {
+                snprintf(bgt, sizeof(bgt), "%lu",
+                         (unsigned long)s_enclaves[i].remaining_budget_us);
+            } else {
+                snprintf(bgt, sizeof(bgt), "off");
+            }
+        }
+        printf("%2lu | %-11s | %-7s | %4u | %-5s | 0x%08lX | %10s | %7s | 0x%08lX\n",
                (unsigned long)s_enclaves[i].id,
                s_enclaves[i].name[0] ? s_enclaves[i].name : "unassigned",
                st,
                s_enclaves[i].priority,
-               s_enclaves[i].type == MK_ENCLAVE_TYPE_RT ? "RT" : "INFER",
+               s_enclaves[i].type == MK_ENCLAVE_TYPE_RT ? "RT" :
+               (s_enclaves[i].type == MK_ENCLAVE_TYPE_INFER ? "INFER" : "SYS"),
                (unsigned long)s_enclaves[i].syscall_mask,
-               (unsigned long)s_enclaves[i].budget_us,
+               bgt, stk,
                (unsigned long)s_enclaves[i].held_mutex_mask);
     }
-    printf("========================================\n\n");
+    printf("========================================================================================\n\n");
 }

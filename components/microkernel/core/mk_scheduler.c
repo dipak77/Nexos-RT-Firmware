@@ -1,6 +1,7 @@
 #include "mk_scheduler.h"
 #include "mk_kernel.h"
 #include "mk_port.h"
+#include "mk_task.h"
 #include "mk_enclave.h"
 #include "mk_fault.h"
 #include "esp_log.h"
@@ -223,43 +224,38 @@ void mk_scheduler_tick(uint64_t now_ms){
             s_current_task->time_slice--;
         }
 
-        // V2 Budget Enforcement (Claims 2, 7)
-        if(s_current_task->budget_us > 0){
-            if(s_current_task->remaining_budget_us > 1000){
-                s_current_task->remaining_budget_us -= 1000;
-            } else {
-                s_current_task->remaining_budget_us = 0;
-                if(s_current_task->enclave_desc){
-                    mk_enclave_desc_t* enc = (mk_enclave_desc_t*)s_current_task->enclave_desc;
-                    mk_fault_log((uint8_t)enc->id, MK_FAULT_BUDGET_EXHAUSTED, 0x0003, 0, 0, enc->budget_us);
-                    // Trap and suspend overrun task
-                    enc->state = MK_ENCLAVE_FAILED;
-                    mk_scheduler_remove_ready(s_current_task);
-                    s_current_task->state = MK_TASK_BLOCKED;
-                }
-            }
-        }
+        // NOTE: budget enforcement lives in mk_enclave_sample_budgets() (10Hz,
+        // real FreeRTOS run-time deltas). A 1kHz tick cannot attribute execution
+        // in the hybrid model (see mk_scheduler_current_task), so no budget
+        // accounting happens here — only quantum/RR below. This keeps one
+        // owner per mechanism and avoids double-draining.
 
-        // V2 RT-preempts-INFER deferral (Claim 2)
-        if(s_current_task->enclave_desc){
+        // V2 RT-preempts-INFER deferral (Claim 2). deadline_us is an absolute
+        // esp_timer timestamp; compare time-REMAINING against the threshold.
+        if(s_current_task && s_current_task->enclave_desc){
             mk_enclave_desc_t* enc = (mk_enclave_desc_t*)s_current_task->enclave_desc;
             if(enc->type == MK_ENCLAVE_TYPE_INFER){
                 // Check if any higher/equal priority RT task is waiting with imminent deadline
                 for(int p = MK_CONFIG_MAX_PRIORITIES - 1; p >= (int)s_current_task->priority; p--){
                     if(s_ready_heads[p] && s_ready_heads[p]->enclave_desc){
                         mk_enclave_desc_t* top_enc = (mk_enclave_desc_t*)s_ready_heads[p]->enclave_desc;
-                        if(top_enc->type == MK_ENCLAVE_TYPE_RT && top_enc->deadline_us > 0 && top_enc->deadline_us < 5000){
-                            // Yield infer task in favor of imminent RT deadline
-                            s_current_task->time_slice = 0;
-                            break;
+                        if(top_enc->type == MK_ENCLAVE_TYPE_RT && top_enc->deadline_us > 0){
+                            uint64_t dl = (uint64_t)top_enc->deadline_us;
+                            uint64_t remaining = (dl > now_us) ? (dl - now_us) : 0;
+                            if(remaining < 5000){
+                                // Yield infer task in favor of imminent RT deadline
+                                s_current_task->time_slice = 0;
+                                break;
+                            }
                         }
                     }
                 }
             }
         }
 
-        // Round-robin quantum expired: rotate within same priority
-        if(s_current_task->time_slice == 0){
+        // Round-robin quantum expired: rotate within same priority.
+        // s_current_task may be NULL here (budget trap suspended it above).
+        if(s_current_task && s_current_task->time_slice == 0){
             s_current_task->time_slice = MK_QUANTUM_TICKS;
             uint8_t prio = s_current_task->priority;
             if(prio < MK_CONFIG_MAX_PRIORITIES && s_ready_heads[prio] != s_ready_tails[prio]){
@@ -278,12 +274,30 @@ void mk_scheduler_tick(uint64_t now_ms){
         }
     }
     mk_port_exit_critical();
+
+    // 10Hz budget sampling against REAL FreeRTOS run-time counters (see
+    // mk_enclave_sample_budgets). Kept out of the critical section: the port
+    // walk suspends the scheduler internally. Dormant when the toolchain has
+    // run-time stats disabled (deltas read 0) or no enclave carries a budget.
+    if((s_system_ticks % 100) == 0){
+        mk_enclave_sample_budgets();
+    }
 }
 
 uint32_t mk_scheduler_ready_count(void){ return s_ready_count; }
 uint32_t mk_scheduler_get_max_jitter_us(void){ return s_max_jitter_us; }
 uint64_t mk_scheduler_get_context_switches(void){ return s_context_switches; }
-mk_task_t* mk_scheduler_current_task(void){ return s_current_task; }
+// Prod-grade: execution is FreeRTOS-driven (hybrid), so the cached pointer set
+// at task entry goes stale after every real switch. Resolve the true running
+// task from the port handle on every query; fall back to the cache only when
+// the port lookup finds no live Nexos-RT task (early boot / foreign caller).
+// This is what makes PI attribution, budget accounting and SVC capability
+// checks correct under the hybrid execution model.
+mk_task_t* mk_scheduler_current_task(void){
+    mk_task_handle_t self = mk_task_self();
+    if(self) return self;
+    return s_current_task;
+}
 void mk_scheduler_set_current_task(mk_task_t* task){ s_current_task = task; }
 
 #if defined(ESP_PLATFORM)

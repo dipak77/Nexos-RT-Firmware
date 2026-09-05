@@ -215,6 +215,22 @@ uint32_t mk_task_count(void){
     return count;
 }
 
+// Port handle for run-time-stat matching (budget sampler). NULL unless LIVE.
+mk_port_task_handle_t mk_task_get_port_handle(mk_task_t* task){
+    if(!task) return NULL;
+    mk_port_enter_critical();
+    mk_port_task_handle_t h = NULL;
+    for(int i=0;i<MK_CONFIG_MAX_TASKS;i++){
+        if(&s_tasks[i].public_tcb == task &&
+           (s_tasks[i].slot_state == SLOT_LIVE) && s_tasks[i].port_handle){
+            h = s_tasks[i].port_handle;
+            break;
+        }
+    }
+    mk_port_exit_critical();
+    return h;
+}
+
 mk_status_t mk_task_suspend(mk_task_handle_t task){
     if(!task) return MK_ERR_INVALID;
     mk_port_enter_critical();

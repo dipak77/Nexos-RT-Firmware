@@ -7,19 +7,21 @@ extern "C" {
 #endif
 
 /**
- * @brief Initialize the hardware GPTimer on ESP32-S3 for Nexos-RT native scheduling.
- * Configured for 1kHz (1000us) tick rate.
+ * @brief Initialize the 1kHz kernel tick (single source, see mk_scheduler tick
+ * driver). Idempotent alias — safe to call alongside mk_scheduler_start_tick().
+ * NOTE: backed by esp_timer, not a dedicated HW GPTimer alarm; named for the
+ * future HW-timer backend which will keep this same API.
  * @return true on success, false on failure.
  */
 bool mk_gptimer_init(void);
 
 /**
- * @brief Start the 1kHz hardware tick timer.
+ * @brief Start the 1kHz tick (delegates to scheduler driver; idempotent).
  */
 void mk_gptimer_start(void);
 
 /**
- * @brief Stop the hardware tick timer.
+ * @brief Stop the 1kHz tick.
  */
 void mk_gptimer_stop(void);
 

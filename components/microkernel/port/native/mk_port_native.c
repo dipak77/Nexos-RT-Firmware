@@ -52,6 +52,25 @@ uint32_t mk_port_task_get_stack_watermark(mk_port_task_handle_t h){
 }
 void mk_port_task_suspend(mk_port_task_handle_t h){ vTaskSuspend((TaskHandle_t)h); }
 void mk_port_task_resume(mk_port_task_handle_t h){ vTaskResume((TaskHandle_t)h); }
+// Static table (no per-call alloc): sampler runs 10Hz, 4 enclaves max.
+// Weak-linked: Arduino cores without trace facility leave this NULL, and the
+// sampler honestly reports stats-unavailable instead of failing the link.
+extern UBaseType_t uxTaskGetSystemState(TaskStatus_t *pxTaskStatusArray, UBaseType_t uxArraySize, uint32_t *pulTotalRunTime) __attribute__((weak));
+static TaskStatus_t s_runtime_table[40];
+bool mk_port_task_runtime(mk_port_task_handle_t h, uint32_t *out_ticks){
+    if(!h || !out_ticks) return false;
+    if(uxTaskGetSystemState == NULL) return false; // toolchain w/o trace: dormant
+    UBaseType_t n = uxTaskGetNumberOfTasks();
+    if(n == 0 || n > 40) return false;
+    UBaseType_t got = uxTaskGetSystemState(s_runtime_table, 40, NULL);
+    for(UBaseType_t i = 0; i < got; i++){
+        if(s_runtime_table[i].xHandle == (TaskHandle_t)h){
+            *out_ticks = s_runtime_table[i].ulRunTimeCounter;
+            return true;
+        }
+    }
+    return false;
+}
 void mk_port_task_set_priority(mk_port_task_handle_t h, uint8_t mk_prio){
     if(!h) return;
     extern uint32_t mk_map_port_priority(uint8_t);

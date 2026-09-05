@@ -34,6 +34,9 @@ mk_port_task_handle_t mk_port_task_self(void);
 uint32_t mk_port_task_get_stack_watermark(mk_port_task_handle_t h);
 void mk_port_task_suspend(mk_port_task_handle_t h);
 void mk_port_task_resume(mk_port_task_handle_t h);
+// FreeRTOS run-time counter for h (10Hz budget sampler). False when the
+// toolchain has stats disabled (counters read 0) or h is unknown.
+bool mk_port_task_runtime(mk_port_task_handle_t h, uint32_t *out_ticks);
 void mk_port_task_set_priority(mk_port_task_handle_t h, uint8_t mk_prio);
 
 // Event port

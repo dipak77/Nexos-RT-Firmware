@@ -97,16 +97,20 @@ mk_status_t mk_mutex_lock(mk_mutex_t* mutex, uint32_t timeout_ms){
 
     mk_port_enter_critical();
     bool was_owner_dead = (mutex->owner_dead != 0);
-    // Fast path 1: Uncontended or recovered from dead owner
+    // Fast path 1: Uncontended or recovered from dead owner.
+    // Prod-grade contract: acquisition ALWAYS returns MK_OK here; a prior owner
+    // death is reported out-of-band via mk_mutex_was_owner_dead(), so callers
+    // that check `== MK_OK` can never leak a held mutex by treating it as failure.
     if(!mutex->locked || was_owner_dead){
         mutex->locked = 1;
-        mutex->owner_dead = 0;
         mutex->recursion_count = 1;
         mutex->owner = self;
         mutex->owner_tcb = self_tcb;
         if(self_tcb) mutex->original_prio = self_tcb->priority;
+        // owner_dead stays set until consumed, so was_owner_dead() remains true
+        // after a successful recovery acquisition.
         mk_port_exit_critical();
-        return was_owner_dead ? MK_ERR_DEADLOCK_OWNER_DEAD : MK_OK;
+        return MK_OK;
     }
 
     // Fast path 2: Recursive acquisition by owner
@@ -206,10 +210,23 @@ mk_status_t mk_mutex_unlock(mk_mutex_t* mutex){
     mutex->recursion_count = 0;
     mutex->owner = NULL;
     mutex->owner_tcb = NULL;
+    // Death flag is consumed at unlock: the recovering owner must query
+    // mk_mutex_was_owner_dead() BEFORE unlocking. Next acquirer starts clean.
+    mutex->owner_dead = 0;
     mk_port_exit_critical();
     if(need_unboost && owner_port) mk_port_task_set_priority(owner_port, target_prio);
     mk_port_yield();
     return MK_OK;
+}
+
+// True if this mutex was recovered after its previous owner died/trapped.
+// Valid only while the caller holds the lock; query BEFORE unlock.
+bool mk_mutex_was_owner_dead(mk_mutex_t* mutex){
+    if(!mutex) return false;
+    mk_port_enter_critical();
+    bool d = (mutex->owner_dead != 0);
+    mk_port_exit_critical();
+    return d;
 }
 
 bool mk_mutex_is_locked(mk_mutex_t* mutex){ return mutex ? mutex->locked != 0 : false; }
@@ -252,6 +269,7 @@ bool mk_mutex_is_locked(mk_mutex_t* mutex){
 }
 const char* mk_mutex_get_name(mk_mutex_t* mutex){ return mutex ? mutex->name : ""; }
 void* mk_mutex_get_owner(mk_mutex_t* mutex){ return mutex && mutex->handle ? (void*)xSemaphoreGetMutexHolder(mutex->handle) : NULL; }
+bool mk_mutex_was_owner_dead(mk_mutex_t* mutex){ (void)mutex; return false; }
 mk_status_t mk_mutex_mark_owner_dead(mk_mutex_t* mutex){ (void)mutex; return MK_OK; }
 void mk_mutex_reclaim_for_task(mk_task_t* task){ (void)task; }
 #endif

@@ -202,5 +202,73 @@ class TestNexosV2Architecture(unittest.TestCase):
         self.assertIn('"fault_clear"', content)
         self.assertIn('"wdt_show"', content)
 
+    # --- 11. Prod-grade correctness contracts (post-review fixes) ---
+    def test_current_task_resolves_from_port(self):
+        """PI/budget/SVC attribution must resolve the live task, not a stale cache."""
+        sched = self.read("components/microkernel/core/mk_scheduler.c")
+        self.assertIn("mk_task_self()", sched)
+        self.assertIn("mk_scheduler_current_task", sched)
+
+    def test_owner_dead_contract_is_ok_plus_query(self):
+        """Recovery acquisition returns MK_OK; death reported via was_owner_dead()."""
+        mutex_c = self.read("components/microkernel/ipc/mk_mutex.c")
+        self.assertIn("mk_mutex_was_owner_dead", mutex_c)
+        mutex_h = self.read("components/microkernel/include/mk_mutex.h")
+        self.assertIn("mk_mutex_was_owner_dead", mutex_h)
+        # No path may return OWNER_DEAD *while holding* the lock anymore
+        self.assertNotIn("return was_owner_dead ? MK_ERR_DEADLOCK_OWNER_DEAD : MK_OK", mutex_c)
+
+    def test_single_tick_source(self):
+        """gptimer must delegate to the scheduler driver, never own a second timer."""
+        gpt = self.read("components/microkernel/arch/esp32s3/mk_gptimer.c")
+        self.assertIn("mk_scheduler_start_tick", gpt)
+        self.assertNotIn("esp_timer_create", gpt)
+
+    def test_context_asm_quarantined_from_builds(self):
+        """mk_context.S stays out of all build graphs until rewritten + loopback-tested."""
+        cmake = self.read("components/microkernel/CMakeLists.txt")
+        self.assertNotIn('"port/native/mk_context.S"', cmake)
+
+    def test_arduino_cli_has_v2_commands(self):
+        """V2 diagnostics must be reachable on the flashed Arduino image, not just IDF."""
+        main_cpp = self.read("src/main.cpp")
+        for cmd in ["enclave_show", "enclave_drill", "fault_show", "fault_clear", "wdt_show"]:
+            self.assertIn(cmd, main_cpp)
+        self.assertIn("mk_enclave_init()", main_cpp)
+
+    def test_boot_tasks_bound_via_enclave_start(self):
+        """Boot tasks must be created through enclaves, never raw mk_task_create_ext."""
+        km = self.read("src/kernel_manager.cpp")
+        self.assertIn("mk_enclave_create", km)
+        self.assertIn("mk_enclave_start", km)
+        self.assertIn("mk_enclave_reclaim", km)
+        self.assertIn("MK_CAP_GFX", km)
+        # Rollback must reclaim enclaves (which deletes bound tasks), not raw-delete
+        self.assertIn("rollback_one", km)
+
+    def test_budget_sampler_uses_real_counters(self):
+        """Sampler matches port handles against run-time counters; dormant when stats off."""
+        enc = self.read("components/microkernel/core/mk_enclave.c")
+        self.assertIn("mk_enclave_sample_budgets", enc)
+        self.assertIn("mk_port_task_runtime", enc)
+        self.assertIn("mk_task_get_port_handle", enc)
+        port_h = self.read("components/microkernel/port/mk_port.h")
+        self.assertIn("mk_port_task_runtime", port_h)
+
+    def test_budget_trap_suspends_real_task(self):
+        """Budget exhaust must suspend execution via the port, not just shadow state."""
+        enc = self.read("components/microkernel/core/mk_enclave.c")
+        self.assertIn("mk_task_suspend", enc)
+        self.assertIn("MK_FAULT_BUDGET_EXHAUSTED", enc)
+        # Tick must NOT double-account budgets (single owner: the sampler)
+        sched = self.read("components/microkernel/core/mk_scheduler.c")
+        self.assertIn("mk_enclave_sample_budgets", sched)
+
+    def test_infer_deferral_uses_time_remaining(self):
+        """Deferral compares time-to-deadline, never an absolute timestamp constant."""
+        sched = self.read("components/microkernel/core/mk_scheduler.c")
+        self.assertIn("remaining < 5000", sched)
+        self.assertNotIn("deadline_us < 5000", sched)
+
 if __name__ == "__main__":
     unittest.main()
