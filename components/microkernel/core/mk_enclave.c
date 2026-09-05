@@ -19,6 +19,7 @@ static bool s_enclave_mgr_initialized = false;
 // no alloc. Reset whenever a slot returns to FREE so reuse starts clean.
 static uint32_t s_prev_runtime[MK_MAX_ENCLAVES] = {0};
 static bool s_prev_valid[MK_MAX_ENCLAVES] = {false};
+static uint32_t s_prev_task_id[MK_MAX_ENCLAVES] = {0};
 
 mk_status_t mk_enclave_init(void) {
     mk_port_enter_critical();
@@ -103,6 +104,7 @@ mk_status_t mk_enclave_start(mk_enclave_desc_t* desc, mk_task_entry_t entry, voi
     cfg.stack_size = desc->stack_size;
     cfg.core_affinity = 1; // Application domain Core 1
     cfg.static_alloc = false;
+    cfg.defer_start = true; // A6: Latch execution until enclave attributes are fully published
 
     mk_task_handle_t t = mk_task_create_ext(&cfg, entry, arg);
     if (!t) {
@@ -136,10 +138,24 @@ mk_status_t mk_enclave_start(mk_enclave_desc_t* desc, mk_task_entry_t entry, voi
     t->deadline_us = desc->deadline_us;
     mk_port_exit_critical();
 
+    // A9: Capture baseline runtime ticks at creation so initial execution is not dropped
+    uint32_t init_runtime = 0;
+    if (port_handle && mk_port_task_runtime(port_handle, &init_runtime)) {
+        s_prev_runtime[desc->id] = init_runtime;
+        s_prev_valid[desc->id] = true;
+    } else {
+        s_prev_runtime[desc->id] = 0;
+        s_prev_valid[desc->id] = false;
+    }
+    s_prev_task_id[desc->id] = t->id;
+
     // Arm hardware debug watchpoint on stack bottom to trap overflows
     if (desc->stack_base && desc->id < 2) {
         mk_watchpoint_arm_stack_guard((int)desc->id, (void*)desc->stack_base, 32);
     }
+
+    // A6: Release per-task creation latch now that enclave, bounds, and budget are published
+    mk_task_release_latch(t);
 
     ESP_LOGI(TAG, "Enclave [%s] is now LIVE (task=%p stack=%p-%p)",
              desc->name, t, (void*)desc->stack_base, (void*)(desc->stack_base + desc->stack_size));
@@ -194,13 +210,12 @@ mk_status_t mk_enclave_trap(mk_enclave_desc_t* desc, uint8_t fault_type, uint16_
     if (victim_is_self) {
         // Self-trap: suspending self never returns, so reclaim mutexes first
         // (marks OWNER_DEAD, never touches live locks), disarm the watchpoint,
-        // then self-delete. The own stack cannot be sanitized — it dies with
-        // the task and is freed by the idle task; documented residual risk
-        // until MPU-backed sanitize exists. Slot stays FAILED-visible; the
-        // operator frees it via mk_enclave_reset/reclaim.
+        // clear references, then self-delete.
         mk_mutex_reclaim_for_task(victim);
         mk_port_enter_critical();
         desc->held_mutex_mask = 0;
+        desc->task_handle = NULL;
+        desc->stack_base = 0;
         mk_port_exit_critical();
         if (desc->id < 2) mk_watchpoint_disarm((int)desc->id);
         mk_task_delete(victim); // self-delete: never returns
@@ -221,6 +236,7 @@ mk_status_t mk_enclave_trap(mk_enclave_desc_t* desc, uint8_t fault_type, uint16_
     mk_task_delete(victim);
     mk_port_enter_critical();
     desc->task_handle = NULL;
+    desc->stack_base = 0;
     // State stays FAILED (visible for audit) until reclaim frees the slot.
     mk_port_exit_critical();
     return MK_OK;
@@ -230,6 +246,10 @@ mk_status_t mk_enclave_reclaim(mk_enclave_desc_t* desc) {
     if (!desc) return MK_ERR_INVALID;
 
     mk_port_enter_critical();
+    if (desc->state == MK_ENCLAVE_FREE) {
+        mk_port_exit_critical();
+        return MK_OK;
+    }
     if (desc->state != MK_ENCLAVE_FAILED && desc->state != MK_ENCLAVE_LIVE &&
         desc->state != MK_ENCLAVE_RESERVED) {
         mk_port_exit_critical();
@@ -251,23 +271,32 @@ mk_status_t mk_enclave_reclaim(mk_enclave_desc_t* desc) {
 
     if (victim) {
         if (victim_is_self) {
-            // Same self-delete path as trap: reclaim mutexes, delete self.
+            // A4: Self-reclaim must transition to FREE before deleting self,
+            // otherwise descriptor is permanently stranded in RECLAIMING.
             mk_mutex_reclaim_for_task(victim);
             if (desc->id < 2) mk_watchpoint_disarm((int)desc->id);
             mk_port_enter_critical();
             desc->held_mutex_mask = 0;
             desc->task_handle = NULL;
+            desc->stack_base = 0;
+            desc->state = MK_ENCLAVE_FREE;
+            s_prev_valid[desc->id] = false;
             mk_port_exit_critical();
             mk_task_delete(victim); // never returns
             return MK_OK;
         }
-        mk_task_suspend(victim);
-        mk_mutex_reclaim_for_task(victim);
-        if (desc->id < 2) mk_watchpoint_disarm((int)desc->id);
-        if (desc->stack_base && desc->stack_size > 0) {
-            memset((void*)desc->stack_base, 0, desc->stack_size);
+        mk_task_state_t st = mk_task_get_state(victim);
+        if (st != MK_TASK_DELETED && st != MK_TASK_ZOMBIE) {
+            mk_task_suspend(victim);
+            mk_mutex_reclaim_for_task(victim);
+            if (desc->id < 2) mk_watchpoint_disarm((int)desc->id);
+            if (desc->stack_base && desc->stack_size > 0) {
+                memset((void*)desc->stack_base, 0, desc->stack_size);
+            }
+            mk_task_delete(victim);
+        } else {
+            if (desc->id < 2) mk_watchpoint_disarm((int)desc->id);
         }
-        mk_task_delete(victim);
     } else {
         if (desc->id < 2) mk_watchpoint_disarm((int)desc->id);
     }
@@ -275,6 +304,7 @@ mk_status_t mk_enclave_reclaim(mk_enclave_desc_t* desc) {
 
     mk_port_enter_critical();
     desc->task_handle = NULL;
+    desc->stack_base = 0;
     desc->state = MK_ENCLAVE_FREE;
     s_prev_valid[desc->id] = false; // budget sampler restarts clean on reuse
     mk_port_exit_critical();
@@ -320,7 +350,12 @@ void mk_enclave_sample_budgets(void) {
         if (!items[k].port || !mk_port_task_runtime(items[k].port, &total)) continue;
         uint32_t id = items[k].desc->id;
         if (id >= MK_MAX_ENCLAVES) continue;
-        if (!s_prev_valid[id]) { s_prev_runtime[id] = total; s_prev_valid[id] = true; continue; }
+        if (!s_prev_valid[id] || s_prev_task_id[id] != items[k].task->id) {
+            s_prev_runtime[id] = total;
+            s_prev_task_id[id] = items[k].task->id;
+            s_prev_valid[id] = true;
+            continue;
+        }
         uint32_t delta = (total >= s_prev_runtime[id]) ? (total - s_prev_runtime[id]) : 0;
         s_prev_runtime[id] = total;
         if (delta == 0) continue; // stats disabled or task idle: dormant, honest

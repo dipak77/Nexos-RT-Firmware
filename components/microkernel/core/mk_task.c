@@ -3,6 +3,8 @@
 #include "mk_scheduler.h"
 #include "esp_log.h"
 #include "mk_port.h"
+#include "mk_enclave.h"
+#include "mk_watchpoint.h"
 #include <string.h>
 #include <stdlib.h>
 
@@ -17,6 +19,7 @@ typedef struct mk_task_internal {
     void* arg;
     char name_storage[32];
     mk_slot_state_t slot_state;
+    volatile bool ready_to_run;
 } mk_task_internal_t;
 
 static mk_task_internal_t s_tasks[MK_CONFIG_MAX_TASKS];
@@ -26,6 +29,10 @@ static uint32_t s_next_id = 1;
 static void mk_port_task_wrapper(void* arg){
     mk_task_internal_t* internal = (mk_task_internal_t*)arg;
     mk_wait_start();
+    // A6: Per-task creation latch - wait until task creator has published all attributes
+    while(!internal->ready_to_run){
+        mk_port_delay_ms(1);
+    }
     internal->public_tcb.state = MK_TASK_RUNNING;
     mk_scheduler_set_current_task(&internal->public_tcb);
     if (internal->entry) internal->entry(internal->arg);
@@ -46,9 +53,37 @@ mk_task_handle_t mk_task_create(const char* name, mk_task_entry_t entry, void* a
     return mk_task_create_ext(&cfg, entry, arg);
 }
 
+void mk_task_reap(void){
+    mk_port_enter_critical();
+    for(int i=0;i<MK_CONFIG_MAX_TASKS;i++){
+        if(s_tasks[i].slot_state == SLOT_DELETING){
+            if(!s_tasks[i].port_handle || !mk_port_task_is_alive(s_tasks[i].port_handle)){
+                memset(&s_tasks[i], 0, sizeof(s_tasks[i]));
+                s_tasks[i].slot_state = SLOT_FREE;
+            }
+        }
+    }
+    mk_port_exit_critical();
+}
+
+void mk_task_release_latch(mk_task_handle_t task){
+    if(!task) return;
+    mk_port_enter_critical();
+    for(int i=0;i<MK_CONFIG_MAX_TASKS;i++){
+        if(&s_tasks[i].public_tcb == task){
+            s_tasks[i].ready_to_run = true;
+            break;
+        }
+    }
+    mk_port_exit_critical();
+}
+
 mk_task_handle_t mk_task_create_ext(const mk_task_config_t* config, mk_task_entry_t entry, void* arg){
     if(!config || !entry) return NULL;
     if(!mk_is_initialized()) return NULL;
+
+    // A4: Clean up any deleted tasks before allocating
+    mk_task_reap();
 
     mk_port_enter_critical();
     int idx = -1;
@@ -95,6 +130,9 @@ mk_task_handle_t mk_task_create_ext(const mk_task_config_t* config, mk_task_entr
     internal->slot_state = SLOT_LIVE;
     s_task_count++;
     mk_scheduler_add_ready(&internal->public_tcb);
+    if (!config->defer_start) {
+        internal->ready_to_run = true;
+    }
     mk_port_exit_critical();
     ESP_LOGI(TAG, "Task created [%s]: %s id=%lu prio=%d port_prio=%lu core=%d",
              MK_NATIVE_KERNEL?"NATIVE":"SHIM",
@@ -124,6 +162,25 @@ mk_status_t mk_task_delete(mk_task_handle_t task){
             if(s_task_count) s_task_count--;
             mk_scheduler_remove_ready(&s_tasks[i].public_tcb);
             mk_port_exit_critical();
+
+            // If task was bound to an enclave, detach association safely
+            if (victim->public_tcb.enclave_desc) {
+                mk_enclave_desc_t* enc = (mk_enclave_desc_t*)victim->public_tcb.enclave_desc;
+                if (enc->id < 2) {
+                    mk_watchpoint_disarm((int)enc->id);
+                }
+                mk_port_enter_critical();
+                if (enc->task_handle == &victim->public_tcb) {
+                    enc->task_handle = NULL;
+                    enc->stack_base = 0;
+                    if (enc->state == MK_ENCLAVE_LIVE) {
+                        enc->state = MK_ENCLAVE_FREE;
+                    }
+                }
+                victim->public_tcb.enclave_desc = NULL;
+                mk_port_exit_critical();
+            }
+
             if(h){
                 mk_port_task_delete(h);
             }
@@ -163,8 +220,8 @@ const char* mk_task_get_name(mk_task_handle_t task){
 }
 
 mk_task_state_t mk_task_get_state(mk_task_handle_t task){
-    if(!task) return MK_TASK_SUSPENDED;
-    mk_task_state_t state = MK_TASK_SUSPENDED;
+    if(!task) return MK_TASK_DELETED;
+    mk_task_state_t state = MK_TASK_DELETED;
     mk_port_enter_critical();
     for(int i=0;i<MK_CONFIG_MAX_TASKS;i++){
         if(&s_tasks[i].public_tcb == task && s_tasks[i].slot_state == SLOT_LIVE){
@@ -235,7 +292,7 @@ mk_status_t mk_task_suspend(mk_task_handle_t task){
     if(!task) return MK_ERR_INVALID;
     mk_port_enter_critical();
     for(int i=0;i<MK_CONFIG_MAX_TASKS;i++){
-        if(&s_tasks[i].public_tcb == task && s_tasks[i].port_handle){
+        if(&s_tasks[i].public_tcb == task && s_tasks[i].slot_state == SLOT_LIVE && s_tasks[i].port_handle){
             mk_scheduler_block_task(task);
             task->state = MK_TASK_SUSPENDED;
             mk_port_task_handle_t ph = s_tasks[i].port_handle;
@@ -252,7 +309,7 @@ mk_status_t mk_task_resume(mk_task_handle_t task){
     if(!task) return MK_ERR_INVALID;
     mk_port_enter_critical();
     for(int i=0;i<MK_CONFIG_MAX_TASKS;i++){
-        if(&s_tasks[i].public_tcb == task && s_tasks[i].port_handle){
+        if(&s_tasks[i].public_tcb == task && s_tasks[i].slot_state == SLOT_LIVE && s_tasks[i].port_handle){
             mk_scheduler_unblock_task(task);
             task->state = MK_TASK_READY;
             mk_port_task_handle_t ph = s_tasks[i].port_handle;

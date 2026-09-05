@@ -359,12 +359,20 @@ void CommandRegistry::register_builtin_commands(){
 
     register_command({CommandId::GET_STATUS, "wdt_show", "Show watchdog timers and ages", "wdt show", [](auto args){
         char buf[256];
-        // Boot task registers as "CLI" (kernel_manager spawn); "COMMAND" never
-        // exists, so query the real name or the age reads 0/not-found.
-        snprintf(buf, sizeof(buf), "GUI WDT: %lu ms | SYSTEM WDT: %lu ms | CLI WDT: %lu ms",
+        uint32_t cmd_age = mk_watchdog_age_ms("COMMAND");
+        const char* cmd_name = "COMMAND";
+        if (cmd_age == 0) {
+            uint32_t cli_age = mk_watchdog_age_ms("CLI");
+            if (cli_age > 0) {
+                cmd_age = cli_age;
+                cmd_name = "CLI";
+            }
+        }
+        snprintf(buf, sizeof(buf), "GUI WDT: %lu ms | SYSTEM WDT: %lu ms | %s WDT: %lu ms",
                  (unsigned long)mk_watchdog_age_ms("GUI"),
                  (unsigned long)mk_watchdog_age_ms("SYSTEM"),
-                 (unsigned long)mk_watchdog_age_ms("CLI"));
+                 cmd_name,
+                 (unsigned long)cmd_age);
         return CommandResult{0, CommandId::GET_STATUS, CommandStatus::SUCCESS, "wdt show", buf, 0, 0};
     }});
 

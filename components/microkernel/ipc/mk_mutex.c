@@ -19,6 +19,7 @@ struct mk_mutex {
     void* owner;
     mk_task_t* owner_tcb;
     uint8_t original_prio;
+    uint8_t highest_waiter_prio;
     uint8_t bit; // enclave held-mask bit, 32 = untracked (allocator exhausted)
     struct mk_mutex* next;
 };
@@ -150,8 +151,12 @@ mk_status_t mk_mutex_lock(mk_mutex_t* mutex, uint32_t timeout_ms){
     // bridge is what makes PI real on ESP32-S3 (hybrid execution model).
     if(self_tcb && mutex->owner_tcb && self_tcb->priority > mutex->owner_tcb->priority){
         void *owner_port = mutex->owner;
-        mutex->owner_tcb->priority = self_tcb->priority;
+        if(self_tcb->priority > mutex->highest_waiter_prio) {
+            mutex->highest_waiter_prio = self_tcb->priority;
+        }
+        // Fix A2: Remove from ready queue using OLD priority first, THEN update priority, THEN re-add
         mk_scheduler_remove_ready(mutex->owner_tcb);
+        mutex->owner_tcb->priority = self_tcb->priority;
         mk_scheduler_add_ready(mutex->owner_tcb);
         mk_port_exit_critical();
         if(owner_port) mk_port_task_set_priority(owner_port, self_tcb->priority);
@@ -177,8 +182,11 @@ mk_status_t mk_mutex_lock(mk_mutex_t* mutex, uint32_t timeout_ms){
         // Re-apply priority boost in case owner changed
         if(self_tcb && mutex->owner_tcb && self_tcb->priority > mutex->owner_tcb->priority){
             void *owner_port = mutex->owner;
-            mutex->owner_tcb->priority = self_tcb->priority;
+            if(self_tcb->priority > mutex->highest_waiter_prio) {
+                mutex->highest_waiter_prio = self_tcb->priority;
+            }
             mk_scheduler_remove_ready(mutex->owner_tcb);
+            mutex->owner_tcb->priority = self_tcb->priority;
             mk_scheduler_add_ready(mutex->owner_tcb);
             mk_port_exit_critical();
             if(owner_port) mk_port_task_set_priority(owner_port, self_tcb->priority);
@@ -212,29 +220,40 @@ mk_status_t mk_mutex_unlock(mk_mutex_t* mutex){
         return MK_OK;
     }
 
-    // Restore owner base priority if boosted (bookkeeping + real execution)
+    // Capture owner info before clearing mutex fields
     void *owner_port = mutex->owner;
     mk_task_t *owner_tcb = mutex->owner_tcb;
-    uint8_t target_prio = 0;
-    bool need_unboost = false;
-    if(owner_tcb){
-        target_prio = owner_tcb->base_priority ? owner_tcb->base_priority : mutex->original_prio;
-        if(owner_tcb->priority != target_prio){
-            owner_tcb->priority = target_prio;
-            mk_scheduler_remove_ready(owner_tcb);
-            mk_scheduler_add_ready(owner_tcb);
-            need_unboost = true;
-        }
-    }
 
     mask_set(owner_tcb, mutex->bit, false);
     mutex->locked = 0;
     mutex->recursion_count = 0;
     mutex->owner = NULL;
     mutex->owner_tcb = NULL;
+    mutex->highest_waiter_prio = 0;
     // Death flag is consumed at unlock: the recovering owner must query
     // mk_mutex_was_owner_dead() BEFORE unlocking. Next acquirer starts clean.
     mutex->owner_dead = 0;
+
+    // Restore owner priority: account for waiters on all remaining held mutexes
+    uint8_t target_prio = 0;
+    bool need_unboost = false;
+    if(owner_tcb){
+        target_prio = owner_tcb->base_priority ? owner_tcb->base_priority : mutex->original_prio;
+        mk_mutex_t* cur = s_mutex_list_head;
+        while(cur){
+            if(cur->owner_tcb == owner_tcb && cur->highest_waiter_prio > target_prio){
+                target_prio = cur->highest_waiter_prio;
+            }
+            cur = cur->next;
+        }
+        if(owner_tcb->priority != target_prio){
+            // Fix A2: Remove from ready queue using OLD priority first, THEN change priority, THEN add
+            mk_scheduler_remove_ready(owner_tcb);
+            owner_tcb->priority = target_prio;
+            mk_scheduler_add_ready(owner_tcb);
+            need_unboost = true;
+        }
+    }
     mk_port_exit_critical();
     if(need_unboost && owner_port) mk_port_task_set_priority(owner_port, target_prio);
     mk_port_yield();

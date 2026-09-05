@@ -17,6 +17,8 @@ const char* mk_task_get_name(mk_task_handle_t task);
 mk_task_state_t mk_task_get_state(mk_task_handle_t task);
 mk_status_t mk_task_get_info(mk_task_handle_t task, mk_task_info_t* info);
 uint32_t mk_task_count(void);
+void mk_task_reap(void);
+void mk_task_release_latch(mk_task_handle_t task);
 
 #ifdef __cplusplus
 }

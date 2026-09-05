@@ -71,6 +71,7 @@ typedef struct {
     void* stack_base; // if NULL, kernel allocates
     int core_affinity; // -1 any, 0/1 pinned - for ESP32-S3 platform shim
     bool static_alloc;
+    bool defer_start; // If true, task creation latches until mk_task_release_latch is called
 } mk_task_config_t;
 
 typedef struct {

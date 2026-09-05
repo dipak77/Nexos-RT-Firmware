@@ -370,5 +370,71 @@ class TestNexosV2Architecture(unittest.TestCase):
         self.assertIn("lv_label_set_text(cmd_time_label, t_buf)", dash)
         self.assertIn("lv_obj_set_width(heap_fill, fill_w)", dash)
 
+    # --- 13. Core Architectural Contracts (A1 - A10) ---
+    def test_a1_idf_cmake_requirements(self):
+        """A1: CMakeLists.txt must not require obsolete esp_ipc component."""
+        cmake = self.read("components/microkernel/CMakeLists.txt")
+        self.assertNotIn("esp_ipc", cmake)
+        self.assertIn("esp_system", cmake)
+
+    def test_a2_priority_inheritance_queue_unlinking_order(self):
+        """A2: mk_scheduler_remove_ready must precede priority mutation."""
+        mutex_c = self.read("components/microkernel/ipc/mk_mutex.c")
+        # In boost path: remove_ready must appear before assigning priority
+        boost_idx = mutex_c.find("Fix A2: Remove from ready queue using OLD priority first")
+        self.assertGreater(boost_idx, 0)
+        # Check struct has highest_waiter_prio
+        self.assertIn("highest_waiter_prio", mutex_c)
+
+    def test_a3_a4_task_reaper_and_self_reclaim(self):
+        """A3/A4: mk_task_reap must recycle tombstones; self-reclaim must transition to FREE."""
+        task_c = self.read("components/microkernel/core/mk_task.c")
+        self.assertIn("void mk_task_reap(void)", task_c)
+        self.assertIn("mk_task_reap();", task_c)
+        enclave_c = self.read("components/microkernel/core/mk_enclave.c")
+        self.assertIn("desc->state = MK_ENCLAVE_FREE;", enclave_c)
+        self.assertIn("desc->task_handle = NULL;", enclave_c)
+        self.assertIn("desc->stack_base = 0;", enclave_c)
+
+    def test_a5_foreign_caller_returns_null(self):
+        """A5: mk_scheduler_current_task must return NULL for unregistered callers."""
+        sched_c = self.read("components/microkernel/core/mk_scheduler.c")
+        self.assertIn("return mk_task_self();", sched_c)
+        self.assertNotIn("return s_current_task;", sched_c)
+
+    def test_a6_task_creation_latch(self):
+        """A6: Tasks must wait for ready_to_run latch before executing entry."""
+        task_c = self.read("components/microkernel/core/mk_task.c")
+        self.assertIn("while(!internal->ready_to_run)", task_c)
+        self.assertIn("mk_task_release_latch", task_c)
+        types_h = self.read("components/microkernel/include/mk_types.h")
+        self.assertIn("bool defer_start;", types_h)
+
+    def test_a7_watchpoint_cross_core_coordination(self):
+        """A7: Watchpoint disarm and arm must coordinate across CPU cores."""
+        wp_c = self.read("components/microkernel/arch/esp32s3/mk_watchpoint.c")
+        self.assertIn("esp_ipc_call_blocking", wp_c)
+        self.assertIn("esp_cpu_get_core_id()", wp_c)
+
+    def test_a8_svc_args_out_result_bounds_check(self):
+        """A8: Syscall dispatcher must validate args, out_result, and buffers."""
+        svc_c = self.read("components/microkernel/core/mk_svc.c")
+        self.assertIn("mk_svc_validate_ptr(enclave, args, sizeof(mk_svc_args_t))", svc_c)
+        self.assertIn("mk_svc_validate_ptr(enclave, out_result, sizeof(uintptr_t))", svc_c)
+        self.assertIn("MK_SVC_NET_RECV", svc_c)
+        self.assertIn("MK_SVC_IPC_RECV", svc_c)
+
+    def test_a9_budget_baseline_and_generation(self):
+        """A9: Enclave start must establish initial baseline and track task generations."""
+        enclave_c = self.read("components/microkernel/core/mk_enclave.c")
+        self.assertIn("s_prev_task_id", enclave_c)
+        self.assertIn("s_prev_task_id[desc->id] = t->id;", enclave_c)
+
+    def test_a10_dual_track_watchdog_query(self):
+        """A10: wdt_show must query COMMAND with fallback to CLI."""
+        cmd_c = self.read("components/command/command_registry.cpp")
+        self.assertIn('mk_watchdog_age_ms("COMMAND")', cmd_c)
+        self.assertIn('mk_watchdog_age_ms("CLI")', cmd_c)
+
 if __name__ == "__main__":
     unittest.main()

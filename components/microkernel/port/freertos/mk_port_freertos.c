@@ -38,7 +38,7 @@ mk_port_task_handle_t mk_port_task_self(void){ return (mk_port_task_handle_t)xTa
 uint32_t mk_port_task_get_stack_watermark(mk_port_task_handle_t h){ return uxTaskGetStackHighWaterMark((TaskHandle_t)h)*4; }
 void mk_port_task_suspend(mk_port_task_handle_t h){ vTaskSuspend((TaskHandle_t)h); }
 void mk_port_task_resume(mk_port_task_handle_t h){ vTaskResume((TaskHandle_t)h); }
-extern uint8_t* pxTaskGetStackStart(void* xTask) __attribute__((weak));
+extern uint8_t* pxTaskGetStackStart(TaskHandle_t xTask) __attribute__((weak));
 bool mk_port_task_stack_base(mk_port_task_handle_t h, uintptr_t *out_base){
     if(!h || !out_base) return false;
     if(pxTaskGetStackStart == NULL) return false;
@@ -51,6 +51,14 @@ void mk_port_task_set_priority(mk_port_task_handle_t h, uint8_t mk_prio){
     if(!h) return;
     extern uint32_t mk_map_port_priority(uint8_t);
     vTaskPrioritySet((TaskHandle_t)h, mk_map_port_priority(mk_prio));
+}
+extern eTaskState eTaskGetState(TaskHandle_t xTask) __attribute__((weak));
+bool mk_port_task_is_alive(mk_port_task_handle_t h){
+    if(!h) return false;
+    if(eTaskGetState != NULL){
+        return (eTaskGetState((TaskHandle_t)h) != eDeleted);
+    }
+    return false;
 }
 extern UBaseType_t uxTaskGetSystemState(TaskStatus_t *pxTaskStatusArray, UBaseType_t uxArraySize, uint32_t *pulTotalRunTime) __attribute__((weak));
 static TaskStatus_t s_runtime_table[40];

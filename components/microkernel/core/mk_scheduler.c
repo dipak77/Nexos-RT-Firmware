@@ -282,6 +282,7 @@ void mk_scheduler_tick(uint64_t now_ms){
     // run-time stats disabled (deltas read 0) or no enclave carries a budget.
     if((s_system_ticks % 100) == 0){
         mk_enclave_sample_budgets();
+        mk_task_reap();
     }
 }
 
@@ -295,9 +296,8 @@ uint64_t mk_scheduler_get_context_switches(void){ return s_context_switches; }
 // This is what makes PI attribution, budget accounting and SVC capability
 // checks correct under the hybrid execution model.
 mk_task_t* mk_scheduler_current_task(void){
-    mk_task_handle_t self = mk_task_self();
-    if(self) return self;
-    return s_current_task;
+    // Return live registered task, or NULL if foreign unmanaged thread (A5)
+    return mk_task_self();
 }
 void mk_scheduler_set_current_task(mk_task_t* task){ s_current_task = task; }
 

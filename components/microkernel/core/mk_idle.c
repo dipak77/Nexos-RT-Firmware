@@ -11,6 +11,7 @@ void mk_idle_task(void* arg){
 #else
         mk_sleep_ms(10);
 #endif
+        mk_task_reap();
         mk_yield();
     }
 }

@@ -29,7 +29,7 @@ idf_component_register(
         # assembled in the Arduino build. See docs/REDESIGNED_NEXOS_RT_V2_SDK_ARCHITECTURE.md.
         "port/freertos/mk_port_freertos.c"
     INCLUDE_DIRS "include" "arch/esp32s3" "port" "port/native" "port/freertos"
-    REQUIRES freertos esp_timer esp_common common heap esp_system esp_ipc
+    REQUIRES freertos esp_timer esp_common common heap esp_system
 )
 
 # App layer should only include mk/*.h, never freertos/*.h

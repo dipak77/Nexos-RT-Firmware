@@ -100,27 +100,44 @@ mk_status_t mk_svc_dispatch(mk_svc_num_t svc_num, mk_svc_args_t* args, uintptr_t
             ESP_LOGE(TAG, "[TRAP] Capability violation in [%s]: syscall=%d requires cap=0x%08lX, mask=0x%08lX",
                      enclave->name, (int)svc_num, (unsigned long)required_cap, (unsigned long)enclave->syscall_mask);
 
-            mk_fault_log((uint8_t)enclave->id, MK_FAULT_CAPABILITY_VIOLATION, (uint16_t)svc_num, 0, 0, required_cap);
             mk_enclave_trap(enclave, MK_FAULT_CAPABILITY_VIOLATION, (uint16_t)svc_num, "capability_violation");
             return MK_ERR_CAPABILITY;
         }
     }
 
-    // 2. Validate Buffer Pointers for Memory-Consuming Syscalls
-    if (enclave != NULL && args != NULL) {
-        if (svc_num == MK_SVC_GFX_FLUSH || svc_num == MK_SVC_NET_SEND) {
-            const void* buf = (const void*)args->arg0;
-            size_t len = (size_t)args->arg1;
-            if (buf && len > 0) {
-                if (!mk_svc_validate_ptr(enclave, buf, len)) {
-                    ESP_LOGE(TAG, "[TRAP] OOB pointer in [%s]: buf=%p len=%u outside bounds [0x%lX, 0x%lX)",
-                             enclave->name, buf, (unsigned)len,
-                             (unsigned long)enclave->base, (unsigned long)enclave->limit);
+    // 2. Validate Argument Envelope and Out-Result Pointer (A8)
+    if (enclave != NULL) {
+        if (args != NULL && !mk_svc_validate_ptr(enclave, args, sizeof(mk_svc_args_t))) {
+            ESP_LOGE(TAG, "[TRAP] OOB args pointer in [%s]: args=%p", enclave->name, args);
+            mk_enclave_trap(enclave, MK_FAULT_OOB_MEMORY_ACCESS, (uint16_t)svc_num, "oob_args_pointer");
+            return MK_ERR_SVC_FAULT;
+        }
+        if (out_result != NULL && !mk_svc_validate_ptr(enclave, out_result, sizeof(uintptr_t))) {
+            ESP_LOGE(TAG, "[TRAP] OOB out_result pointer in [%s]: out_result=%p", enclave->name, out_result);
+            mk_enclave_trap(enclave, MK_FAULT_OOB_MEMORY_ACCESS, (uint16_t)svc_num, "oob_out_result");
+            return MK_ERR_SVC_FAULT;
+        }
+    }
 
-                    mk_fault_log((uint8_t)enclave->id, MK_FAULT_OOB_MEMORY_ACCESS, (uint16_t)svc_num, (uint32_t)(uintptr_t)buf, 0, (uint32_t)len);
-                    mk_enclave_trap(enclave, MK_FAULT_OOB_MEMORY_ACCESS, (uint16_t)svc_num, "oob_memory_access");
-                    return MK_ERR_SVC_FAULT;
-                }
+    // 3. Validate Buffer Pointers for Memory-Consuming Syscalls (A8)
+    if (enclave != NULL && args != NULL) {
+        const void* buf = NULL;
+        size_t len = 0;
+        if (svc_num == MK_SVC_GFX_FLUSH || svc_num == MK_SVC_NET_SEND || svc_num == MK_SVC_NET_RECV) {
+            buf = (const void*)args->arg0;
+            len = (size_t)args->arg1;
+        } else if (svc_num == MK_SVC_IPC_SEND || svc_num == MK_SVC_IPC_RECV) {
+            buf = (const void*)args->arg1;
+            len = (size_t)args->arg2;
+        }
+        if (buf && len > 0) {
+            if (!mk_svc_validate_ptr(enclave, buf, len)) {
+                ESP_LOGE(TAG, "[TRAP] OOB pointer in [%s]: buf=%p len=%u outside bounds [0x%lX, 0x%lX)",
+                         enclave->name, buf, (unsigned)len,
+                         (unsigned long)enclave->base, (unsigned long)enclave->limit);
+
+                mk_enclave_trap(enclave, MK_FAULT_OOB_MEMORY_ACCESS, (uint16_t)svc_num, "oob_memory_access");
+                return MK_ERR_SVC_FAULT;
             }
         }
     }

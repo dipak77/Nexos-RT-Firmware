@@ -44,6 +44,7 @@ bool mk_port_task_runtime(mk_port_task_handle_t h, uint32_t *out_ticks);
 // False when the toolchain gates pxTaskGetStackStart out (weak-linked).
 bool mk_port_task_stack_base(mk_port_task_handle_t h, uintptr_t *out_base);
 void mk_port_task_set_priority(mk_port_task_handle_t h, uint8_t mk_prio);
+bool mk_port_task_is_alive(mk_port_task_handle_t h);
 
 // Event port
 typedef void* mk_port_event_group_handle_t;

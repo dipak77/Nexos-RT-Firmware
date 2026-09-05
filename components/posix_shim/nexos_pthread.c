@@ -3,6 +3,21 @@
 #include <stdlib.h>
 #include <errno.h>
 
+struct pthread_start_ctx {
+    void* (*fn)(void*);
+    void* arg;
+};
+
+static void pthread_trampoline(void* arg) {
+    struct pthread_start_ctx* ctx = (struct pthread_start_ctx*)arg;
+    if (ctx) {
+        void* (*fn)(void*) = ctx->fn;
+        void* user_arg = ctx->arg;
+        free(ctx);
+        if (fn) fn(user_arg);
+    }
+}
+
 int nexos_pthread_create(nexos_pthread_t* thread, const nexos_pthread_attr_t* attr,
                          void* (*start_routine)(void*), void* arg) {
     if (!thread || !start_routine) return EINVAL;
@@ -10,8 +25,16 @@ int nexos_pthread_create(nexos_pthread_t* thread, const nexos_pthread_attr_t* at
     size_t stack = attr ? attr->stack_size : 4096;
     uint8_t prio = attr ? (uint8_t)attr->priority : MK_PRIO_COMMAND;
 
-    mk_task_handle_t t = mk_task_create("posix_th", (mk_task_entry_t)start_routine, arg, NULL, stack, prio);
-    if (!t) return ENOMEM;
+    struct pthread_start_ctx* ctx = (struct pthread_start_ctx*)malloc(sizeof(struct pthread_start_ctx));
+    if (!ctx) return ENOMEM;
+    ctx->fn = start_routine;
+    ctx->arg = arg;
+
+    mk_task_handle_t t = mk_task_create("posix_th", pthread_trampoline, ctx, NULL, stack, prio);
+    if (!t) {
+        free(ctx);
+        return ENOMEM;
+    }
 
     *thread = (nexos_pthread_t)t;
     return 0;
