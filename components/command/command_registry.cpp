@@ -1,6 +1,6 @@
 #include "command_registry.h"
 #include "mk.h"
-#include "esp_timer.h"
+#include "esp_timer.h" // DrillCtx burner clock (already a dependency of this TU)
 #include "common/app_version.h"
 #include "storage/settings_store.h"
 #include "connectivity/wifi_service.h"
@@ -359,11 +359,48 @@ void CommandRegistry::register_builtin_commands(){
 
     register_command({CommandId::GET_STATUS, "wdt_show", "Show watchdog timers and ages", "wdt show", [](auto args){
         char buf[256];
-        snprintf(buf, sizeof(buf), "GUI WDT: %lu ms | SYSTEM WDT: %lu ms | COMMAND WDT: %lu ms",
+        // Boot task registers as "CLI" (kernel_manager spawn); "COMMAND" never
+        // exists, so query the real name or the age reads 0/not-found.
+        snprintf(buf, sizeof(buf), "GUI WDT: %lu ms | SYSTEM WDT: %lu ms | CLI WDT: %lu ms",
                  (unsigned long)mk_watchdog_age_ms("GUI"),
                  (unsigned long)mk_watchdog_age_ms("SYSTEM"),
-                 (unsigned long)mk_watchdog_age_ms("COMMAND"));
+                 (unsigned long)mk_watchdog_age_ms("CLI"));
         return CommandResult{0, CommandId::GET_STATUS, CommandStatus::SUCCESS, "wdt show", buf, 0, 0};
+    }});
+
+    // Budget-trap drill (IDF product CLI parity with Arduino `enclave_drill`).
+    // Sacrificial INFER enclave, 8ms budget, low-prio burner, auto-reclaim.
+    // SKIP (not FAIL) when run-time stats are unavailable on the toolchain.
+    register_command({CommandId::GET_STATUS, "enclave_drill", "Prove budget trap on sacrificial enclave", "enclave drill", [](auto args){
+        uint32_t f0 = mk_fault_get_total_count();
+        mk_enclave_desc_t* dd = mk_enclave_create("DRILL", 2, MK_ENCLAVE_TYPE_INFER,
+                                                 0, 0, 4096, MK_CAP_NONE, 8000, 0);
+        if (!dd) return CommandResult{0, CommandId::GET_STATUS, CommandStatus::FAILED, "enclave drill", "SKIP no free enclave slot", 0, 0};
+        struct DrillCtx { static void burn(void* a) {
+            (void)a;
+            volatile uint32_t x = 0;
+            uint64_t until = (uint64_t)esp_timer_get_time() + 2000000ULL;
+            while ((int64_t)((uint64_t)esp_timer_get_time() - until) < 0) { x += (x ^ 0x9E3779B9u) + 1u; }
+            (void)x;
+        } };
+        if (mk_enclave_start(dd, DrillCtx::burn, nullptr) != MK_OK) {
+            mk_enclave_reclaim(dd);
+            return CommandResult{0, CommandId::GET_STATUS, CommandStatus::FAILED, "enclave drill", "FAIL task start", 0, 0};
+        }
+        bool trapped = false;
+        for (int i = 0; i < 30; i++) {
+            mk_watchdog_feed_self();
+            mk_sleep_ms(100);
+            if (dd->state == MK_ENCLAVE_FAILED) { trapped = true; break; }
+        }
+        uint32_t f1 = mk_fault_get_total_count();
+        uint32_t id = dd->id;
+        mk_enclave_reset(id); // reclaim slot whatever the outcome
+        if (trapped && f1 > f0)
+            return CommandResult{0, CommandId::GET_STATUS, CommandStatus::SUCCESS, "enclave drill", "PASS budget trap + fault logged + reclaimed", 0, 0};
+        if (f1 == f0 && !trapped)
+            return CommandResult{0, CommandId::GET_STATUS, CommandStatus::SUCCESS, "enclave drill", "SKIP run-time stats unavailable (deltas read 0)", 0, 0};
+        return CommandResult{0, CommandId::GET_STATUS, CommandStatus::FAILED, "enclave drill", "FAIL no trap within 3s", 0, 0};
     }});
 }
 

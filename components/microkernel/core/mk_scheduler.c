@@ -230,8 +230,9 @@ void mk_scheduler_tick(uint64_t now_ms){
         // accounting happens here — only quantum/RR below. This keeps one
         // owner per mechanism and avoids double-draining.
 
-        // V2 RT-preempts-INFER deferral (Claim 2). deadline_us is an absolute
-        // esp_timer timestamp; compare time-REMAINING against the threshold.
+        // INFER deferral: zero the quantum so RR rotates past this task. Advisory
+        // hint only — real preemption stays FreeRTOS priority-driven (hybrid).
+        // deadline_us is an absolute esp_timer timestamp; compare time-REMAINING.
         if(s_current_task && s_current_task->enclave_desc){
             mk_enclave_desc_t* enc = (mk_enclave_desc_t*)s_current_task->enclave_desc;
             if(enc->type == MK_ENCLAVE_TYPE_INFER){

@@ -4,15 +4,28 @@
 
 static const char* TAG = "MK_WATCHPOINT";
 
+// This Arduino core (IDF 5.x) defines only ESP_WATCHPOINT_*; newer IDFs renamed
+// them ESP_CPU_WATCHPOINT_*. Verified against the bundled esp_cpu.h.
+#ifndef ESP_WATCHPOINT_STORE
+#ifdef ESP_CPU_WATCHPOINT_STORE
+#define ESP_WATCHPOINT_STORE ESP_CPU_WATCHPOINT_STORE
+#else
+#error "No watchpoint STORE flag in this toolchain"
+#endif
+#endif
+
 bool mk_watchpoint_arm_stack_guard(int watchpoint_id, const void* stack_base, size_t size) {
     if (watchpoint_id < 0 || watchpoint_id > 1 || !stack_base) {
         return false;
     }
+    (void)size; // fixed 32-byte guard window (HW limit 64, alignment requirement)
 
 #if defined(ESP_PLATFORM)
-    // ESP-IDF provides esp_cpu_set_watchpoint(int no, void *adr, int size, int flags)
-    // flags: ESP_CPU_WATCHPOINT_STORE = 2, ESP_CPU_WATCHPOINT_LOAD = 1, BOTH = 3
-    esp_err_t err = esp_cpu_set_watchpoint(watchpoint_id, (char*)stack_base, size, ESP_WATCHPOINT_STORE);
+    // HW requires base naturally aligned to size (power of two, <= 64).
+    // Best-effort only: a hit raises a CPU debug exception (panic), it is NOT
+    // routed into the enclave fault path — so this is a tripwire, not isolation.
+    uintptr_t aligned = (uintptr_t)stack_base & ~(uintptr_t)31;
+    esp_err_t err = esp_cpu_set_watchpoint(watchpoint_id, (char*)aligned, 32, ESP_WATCHPOINT_STORE);
     if (err == ESP_OK) {
         ESP_LOGD(TAG, "Hardware stack guard armed at %p (size=%u) on WP %d", stack_base, (unsigned)size, watchpoint_id);
         return true;

@@ -18,10 +18,28 @@ int nexos_pthread_create(nexos_pthread_t* thread, const nexos_pthread_attr_t* at
 }
 
 int nexos_pthread_join(nexos_pthread_t thread, void** retval) {
-    (void)thread;
-    (void)retval;
-    // Basic detachment/yield wait
-    mk_sleep_ms(10);
+    // Entry functions return void, so there is no exit code to harvest:
+    // retval, when non-NULL, is always set to NULL on success.
+    mk_task_t* t = (mk_task_t*)thread;
+    if (!t) return EINVAL;
+    uint32_t id = 0;
+    {
+        mk_task_info_t info;
+        if (mk_task_get_info(t, &info) != MK_OK) {
+            if (retval) *retval = NULL; // already gone
+            return 0;
+        }
+        id = info.id;
+    }
+    // Wait until the slot is freed or reused (id change ⇒ original is gone).
+    // POSIX join has no timeout; the waiter yields so the system stays live.
+    for (;;) {
+        mk_task_info_t info;
+        if (mk_task_get_info(t, &info) != MK_OK) break; // slot free
+        if (info.id != id) break;                        // slot reused
+        mk_sleep_ms(10);
+    }
+    if (retval) *retval = NULL;
     return 0;
 }
 

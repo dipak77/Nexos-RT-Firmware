@@ -3,6 +3,9 @@
 // Core (mk_task, mk_mutex, ...) includes this, never freertos/*.h directly.
 // Selected by MK_NATIVE_KERNEL in mk_config.h.
 #include "mk_config.h"
+#include <stdint.h>
+#include <stdbool.h>
+#include <stddef.h>
 
 #if MK_NATIVE_KERNEL
   // Native port: no FreeRTOS headers exposed to kernel core
@@ -37,6 +40,9 @@ void mk_port_task_resume(mk_port_task_handle_t h);
 // FreeRTOS run-time counter for h (10Hz budget sampler). False when the
 // toolchain has stats disabled (counters read 0) or h is unknown.
 bool mk_port_task_runtime(mk_port_task_handle_t h, uint32_t *out_ticks);
+// Lowest stack address of h for enclave stack windows + watchpoint guards.
+// False when the toolchain gates pxTaskGetStackStart out (weak-linked).
+bool mk_port_task_stack_base(mk_port_task_handle_t h, uintptr_t *out_base);
 void mk_port_task_set_priority(mk_port_task_handle_t h, uint8_t mk_prio);
 
 // Event port

@@ -25,6 +25,8 @@ typedef struct {
 
 int nexos_pthread_create(nexos_pthread_t* thread, const nexos_pthread_attr_t* attr,
                          void* (*start_routine)(void*), void* arg);
+// join blocks until the thread's slot is freed/reused; entry returns void so
+// *retval is always NULL on success (no exit code is harvested).
 int nexos_pthread_join(nexos_pthread_t thread, void** retval);
 int nexos_pthread_mutex_init(nexos_pthread_mutex_t* mutex, const void* attr);
 int nexos_pthread_mutex_lock(nexos_pthread_mutex_t* mutex);

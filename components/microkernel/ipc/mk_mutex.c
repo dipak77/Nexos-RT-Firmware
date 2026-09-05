@@ -3,6 +3,7 @@
 #include "mk_config.h"
 #include "mk_port.h"
 #include "mk_scheduler.h"
+#include "mk_enclave.h"
 #include <stdlib.h>
 #include <string.h>
 #include "esp_timer.h"
@@ -18,10 +19,22 @@ struct mk_mutex {
     void* owner;
     mk_task_t* owner_tcb;
     uint8_t original_prio;
+    uint8_t bit; // enclave held-mask bit, 32 = untracked (allocator exhausted)
     struct mk_mutex* next;
 };
 
 static mk_mutex_t* s_mutex_list_head = NULL;
+static uint32_t s_bit_alloc = 0; // 1 = bit in use; guarded by port critical
+
+// Set/clear this mutex's bit in its owner's enclave mask. Best-effort audit
+// data for the dump column, not a security boundary.
+static void mask_set(mk_task_t* owner_tcb, uint8_t bit, bool on) {
+    if (!owner_tcb || bit >= 32) return;
+    mk_enclave_desc_t* enc = (mk_enclave_desc_t*)owner_tcb->enclave_desc;
+    if (!enc) return;
+    if (on) enc->held_mutex_mask |= (1u << bit);
+    else enc->held_mutex_mask &= ~(1u << bit);
+}
 
 mk_mutex_t* mk_mutex_create(const char* name){
     mk_mutex_t* m = (mk_mutex_t*)heap_caps_malloc(sizeof(mk_mutex_t), MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT);
@@ -34,9 +47,13 @@ mk_mutex_t* mk_mutex_create(const char* name){
     m->owner = NULL;
     m->owner_tcb = NULL;
     m->original_prio = 0;
+    m->bit = 32;
     if(name) strncpy(m->name, name, sizeof(m->name)-1);
 
     mk_port_enter_critical();
+    for (uint8_t b = 0; b < 32; b++) {
+        if (!(s_bit_alloc & (1u << b))) { s_bit_alloc |= (1u << b); m->bit = b; break; }
+    }
     m->next = s_mutex_list_head;
     s_mutex_list_head = m;
     mk_port_exit_critical();
@@ -46,6 +63,7 @@ mk_mutex_t* mk_mutex_create(const char* name){
 mk_status_t mk_mutex_delete(mk_mutex_t* mutex){
     if(!mutex) return MK_ERR_INVALID;
     mk_port_enter_critical();
+    if (mutex->bit < 32) s_bit_alloc &= ~(1u << mutex->bit);
     if(s_mutex_list_head == mutex){
         s_mutex_list_head = mutex->next;
     } else {
@@ -64,6 +82,7 @@ mk_status_t mk_mutex_delete(mk_mutex_t* mutex){
 mk_status_t mk_mutex_mark_owner_dead(mk_mutex_t* mutex){
     if(!mutex) return MK_ERR_INVALID;
     mk_port_enter_critical();
+    mask_set(mutex->owner_tcb, mutex->bit, false);
     mutex->owner_dead = 1;
     mutex->locked = 0;
     mutex->recursion_count = 0;
@@ -79,6 +98,7 @@ void mk_mutex_reclaim_for_task(mk_task_t* task){
     mk_mutex_t* cur = s_mutex_list_head;
     while(cur){
         if(cur->owner_tcb == task){
+            mask_set(task, cur->bit, false);
             cur->owner_dead = 1;
             cur->locked = 0;
             cur->recursion_count = 0;
@@ -96,26 +116,26 @@ mk_status_t mk_mutex_lock(mk_mutex_t* mutex, uint32_t timeout_ms){
     mk_task_t* self_tcb = mk_scheduler_current_task();
 
     mk_port_enter_critical();
-    bool was_owner_dead = (mutex->owner_dead != 0);
-    // Fast path 1: Uncontended or recovered from dead owner.
-    // Prod-grade contract: acquisition ALWAYS returns MK_OK here; a prior owner
-    // death is reported out-of-band via mk_mutex_was_owner_dead(), so callers
-    // that check `== MK_OK` can never leak a held mutex by treating it as failure.
-    if(!mutex->locked || was_owner_dead){
+    // Recursive holder re-enters first: never disturb the death flag or reset
+    // the recursion count on this path.
+    if(mutex->locked && mutex->owner == self){
+        mutex->recursion_count++;
+        mk_port_exit_critical();
+        return MK_OK;
+    }
+
+    // Acquire ONLY a free lock. owner_dead is sticky diagnostic state, never an
+    // acquire permit: reclaim/mark_owner_dead always clear `locked`, so a free
+    // lock after a death is taken here while the flag stays set for
+    // mk_mutex_was_owner_dead(). A second waiter therefore blocks instead of
+    // stealing the recovering holder's critical section.
+    if(!mutex->locked){
         mutex->locked = 1;
         mutex->recursion_count = 1;
         mutex->owner = self;
         mutex->owner_tcb = self_tcb;
         if(self_tcb) mutex->original_prio = self_tcb->priority;
-        // owner_dead stays set until consumed, so was_owner_dead() remains true
-        // after a successful recovery acquisition.
-        mk_port_exit_critical();
-        return MK_OK;
-    }
-
-    // Fast path 2: Recursive acquisition by owner
-    if(mutex->owner == self){
-        mutex->recursion_count++;
+        mask_set(self_tcb, mutex->bit, true);
         mk_port_exit_critical();
         return MK_OK;
     }
@@ -149,6 +169,7 @@ mk_status_t mk_mutex_lock(mk_mutex_t* mutex, uint32_t timeout_ms){
             mutex->owner = self;
             mutex->owner_tcb = self_tcb;
             if(self_tcb) mutex->original_prio = self_tcb->base_priority ? self_tcb->base_priority : self_tcb->priority;
+            mask_set(self_tcb, mutex->bit, true);
             mk_port_exit_critical();
             return MK_OK;
         }
@@ -206,6 +227,7 @@ mk_status_t mk_mutex_unlock(mk_mutex_t* mutex){
         }
     }
 
+    mask_set(owner_tcb, mutex->bit, false);
     mutex->locked = 0;
     mutex->recursion_count = 0;
     mutex->owner = NULL;

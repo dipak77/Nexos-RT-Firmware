@@ -99,9 +99,19 @@ mk_enclave_desc_t* mk_enclave_get_current(void);
 mk_enclave_desc_t* mk_enclave_get_by_id(uint32_t id);
 
 /**
- * @brief Trigger an enclave fault trap, halting the task and logging to the fault ring.
+ * @brief Register a heap/data window for SVC pointer checks.
+ * Until called (base==0), heap-pointer SVC buffers fail closed while stack
+ * buffers are still validated. The window must be wholly owned by the caller.
  */
-mk_status_t mk_enclave_trap(mk_enclave_desc_t* desc, uint16_t fault_code, const char* reason);
+mk_status_t mk_enclave_set_heap_window(mk_enclave_desc_t* desc, uintptr_t base, uintptr_t limit);
+
+/**
+ * @brief Trigger an enclave fault trap: mark FAILED, log typed fault, halt task.
+ * Never deletes: the enclave stays FAILED and visible until the operator (or
+ * policy) calls mk_enclave_reclaim/reset, which frees the slot. Safe to call
+ * on the running task itself (no self-suspend deadlock, no live-stack memset).
+ */
+mk_status_t mk_enclave_trap(mk_enclave_desc_t* desc, uint8_t fault_type, uint16_t fault_code, const char* reason);
 
 /**
  * @brief Safely reclaim all resources of a failed enclave (mutexes, DMA, stack zeroing).

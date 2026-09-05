@@ -24,7 +24,15 @@ int nexos_mq_send(nexos_mqd_t mqdes, const char* msg_ptr, size_t msg_len, unsign
     if (!mqdes || mqdes == (nexos_mqd_t)-1 || !msg_ptr || msg_len > mqdes->msg_size) {
         return EINVAL;
     }
-    mk_status_t st = mk_queue_send(mqdes->native_queue, msg_ptr, 0xFFFFFFFF);
+    // The native queue always moves a full item; a short POSIX send must not
+    // read past the caller's buffer. Stage through a zeroed slot (heap is fine
+    // here — this is the shim, not the kernel hot path).
+    char* slot = (char*)malloc(mqdes->msg_size ? mqdes->msg_size : 1);
+    if (!slot) return EAGAIN;
+    memset(slot, 0, mqdes->msg_size);
+    memcpy(slot, msg_ptr, msg_len);
+    mk_status_t st = mk_queue_send(mqdes->native_queue, slot, 0xFFFFFFFF);
+    free(slot);
     return (st == MK_OK) ? 0 : EAGAIN;
 }
 

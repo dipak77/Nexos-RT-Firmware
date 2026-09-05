@@ -119,22 +119,72 @@ class TestNexosV2Architecture(unittest.TestCase):
         self.assertEqual(order, [2, 3, 1, 4])
 
     # --- 4. Budget Enforcement & Overrun Trap Simulation ---
-    def test_budget_exhaustion_simulation(self):
-        """Verify that 1kHz tick decrements remaining_budget_us and fires trap when exhausted."""
-        budget_us = 5000  # 5ms budget
-        remaining = budget_us
-        trapped = False
+    def test_budget_sampler_semantics(self):
+        """Mirror mk_enclave_sample_budgets: real deltas drain, zero deltas dorm."""
+        def sample(remaining, budget, deltas):
+            trapped = False
+            for d in deltas:
+                if d == 0:
+                    continue  # stats off / task idle: dormant, honest
+                if d >= remaining:
+                    remaining = 0
+                    trapped = True
+                    break
+                remaining -= d
+            return remaining, trapped
 
-        for tick in range(10):  # 10ms of execution
-            if remaining > 1000:
-                remaining -= 1000
-            else:
-                remaining = 0
-                trapped = True
-                break
-
+        # Real counters: 8ms budget dies on first sizable sample
+        rem, trapped = sample(8000, 8000, [0, 45000])
         self.assertTrue(trapped)
-        self.assertEqual(remaining, 0)
+        self.assertEqual(rem, 0)
+        # Stats disabled (all-zero deltas): never traps, never drains
+        rem, trapped = sample(8000, 8000, [0, 0, 0, 0])
+        self.assertFalse(trapped)
+        self.assertEqual(rem, 8000)
+
+    def test_mutex_no_steal_two_waiters(self):
+        """Mirror fixed mk_mutex_lock: a sticky owner_dead flag never permits
+        stealing a lock that is already held by the recovering holder."""
+        class M:
+            def __init__(self):
+                self.locked = False
+                self.owner_dead = False
+                self.owner = None
+                self.recursion = 0
+
+        def lock(m, me):
+            if m.locked and m.owner == me:
+                m.recursion += 1
+                return True
+            if not m.locked:  # acquire ONLY a free lock (no `or owner_dead`)
+                m.locked = True
+                m.recursion = 1
+                m.owner = me
+                return True
+            return False  # blocks/times out in C
+
+        m = M()
+        # Dead owner reclaimed: free lock, flag sticky
+        m.locked, m.owner_dead, m.owner = False, True, None
+        self.assertTrue(lock(m, "A"))   # recoverer takes it, flag stays for query
+        self.assertTrue(m.owner_dead)   # queryable before unlock
+        self.assertFalse(lock(m, "B"))  # second waiter must NOT steal
+        self.assertEqual(m.owner, "A")
+
+    def test_validate_ptr_unconfigured_enclave(self):
+        """base=limit=stack=0 denies everything (fail-closed, no silent pass)."""
+        def validate(base, limit, sbase, ssize, ptr, length):
+            end = ptr + length
+            if end < ptr:
+                return False
+            if base > 0 and limit > base and base <= ptr and end <= limit:
+                return True
+            if sbase > 0 and ssize > 0 and sbase <= ptr and end <= sbase + ssize:
+                return True
+            return False
+
+        self.assertFalse(validate(0, 0, 0, 0, 0x3FC90000, 64))
+        self.assertTrue(validate(0, 0, 0x3FC90000, 4096, 0x3FC90100, 64))
 
     # --- 5. Robust Mutex Recovery & OWNER_DEAD Propagation ---
     def test_robust_mutex_owner_dead_status_codes(self):
@@ -174,16 +224,14 @@ class TestNexosV2Architecture(unittest.TestCase):
         self.assertIn("nexos_mq_send", content)
         self.assertNotIn("freertos", content.lower())
 
-    # --- 8. Xtensa Assembly Context Switch ---
-    def test_xtensa_context_switch_assembly_source(self):
-        """Verify mk_context.S implements register spill, SAR, and PS save/restore."""
-        content = self.read("components/microkernel/port/native/mk_context.S")
-        self.assertIn("mk_context_switch:", content)
-        self.assertIn("rsr.sar", content)
-        self.assertIn("rsr.ps", content)
-        self.assertIn("wsr.sar", content)
-        self.assertIn("wsr.ps", content)
-        self.assertIn("mk_start_first_task:", content)
+    # --- 8. Xtensa Assembly Context Switch (quarantined, NOT shipped) ---
+    def test_xtensa_context_switch_quarantined(self):
+        """mk_context.S must stay out of every build graph until rewritten with
+        a loopback test. Presence of the file proves nothing about execution."""
+        cmake = self.read("components/microkernel/CMakeLists.txt")
+        # A quoted SRCS entry means "compile me"; comment mentions are fine.
+        self.assertNotIn('"port/native/mk_context.S"', cmake)
+        self.assertNotIn("'port/native/mk_context.S'", cmake)
 
     # --- 9. Hardware GPTimer & Watchpoint Drivers ---
     def test_hardware_drivers_present(self):
@@ -217,6 +265,11 @@ class TestNexosV2Architecture(unittest.TestCase):
         self.assertIn("mk_mutex_was_owner_dead", mutex_h)
         # No path may return OWNER_DEAD *while holding* the lock anymore
         self.assertNotIn("return was_owner_dead ? MK_ERR_DEADLOCK_OWNER_DEAD : MK_OK", mutex_c)
+        # Steal clause must be gone: acquire only free locks, recursive first
+        self.assertNotIn("|| was_owner_dead", mutex_c)
+        self.assertIn("mk_enclave_set_heap_window", self.read("components/microkernel/include/mk_enclave.h"))
+        self.assertIn("mk_port_task_stack_base",
+                      self.read("components/microkernel/port/mk_port.h"))
 
     def test_single_tick_source(self):
         """gptimer must delegate to the scheduler driver, never own a second timer."""

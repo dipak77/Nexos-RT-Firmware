@@ -52,6 +52,16 @@ uint32_t mk_port_task_get_stack_watermark(mk_port_task_handle_t h){
 }
 void mk_port_task_suspend(mk_port_task_handle_t h){ vTaskSuspend((TaskHandle_t)h); }
 void mk_port_task_resume(mk_port_task_handle_t h){ vTaskResume((TaskHandle_t)h); }
+// Weak: only present when the toolchain enables INCLUDE_pxTaskGetStackStart.
+extern uint8_t* pxTaskGetStackStart(void* xTask) __attribute__((weak));
+bool mk_port_task_stack_base(mk_port_task_handle_t h, uintptr_t *out_base){
+    if(!h || !out_base) return false;
+    if(pxTaskGetStackStart == NULL) return false;
+    uint8_t* b = pxTaskGetStackStart((TaskHandle_t)h);
+    if(!b) return false;
+    *out_base = (uintptr_t)b;
+    return true;
+}
 // Static table (no per-call alloc): sampler runs 10Hz, 4 enclaves max.
 // Weak-linked: Arduino cores without trace facility leave this NULL, and the
 // sampler honestly reports stats-unavailable instead of failing the link.

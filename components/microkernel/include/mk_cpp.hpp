@@ -68,9 +68,22 @@ private:
  */
 class Enclave {
 public:
+    // deadline_us defaults to 0 (legacy prio-only) — an absolute esp_timer
+    // timestamp is meaningless as a default (10000us after boot is instantly
+    // in the past). Pass an explicit absolute deadline to opt into EDF.
     Enclave(const char* name, uint8_t priority, uint32_t caps, size_t stack_size = 4096,
-            uint32_t budget_us = 50000, uint32_t deadline_us = 10000) {
+            uint32_t budget_us = 50000, uint32_t deadline_us = 0) {
         desc_ = mk_enclave_create(name, priority, MK_ENCLAVE_TYPE_RT, 0, 0, stack_size, caps, budget_us, deadline_us);
+    }
+    ~Enclave() {
+        // Reclaim ONLY a never-started (RESERVED) descriptor. Reclaiming a
+        // LIVE/FAILED desc here could delete a task whose slot was already
+        // freed and reused (ABA) — operator reset owns those lifetimes.
+        // FAILED descs stay visible for audit until `enclave reset`.
+        if (desc_ && desc_->state == MK_ENCLAVE_RESERVED) {
+            mk_enclave_reset(desc_->id);
+        }
+        desc_ = nullptr;
     }
 
     template<typename Func>
@@ -83,19 +96,25 @@ public:
             wrapper->func();
             delete wrapper;
         }, w);
+        if (st != MK_OK) {
+            delete w; // start failed: wrapper would otherwise leak (task never runs)
+            // desc_ is FAILED; leave it visible for audit, reclaim in dtor
+        }
         return st == MK_OK;
     }
 
-    void trap(uint16_t code, const char* reason) {
-        if (desc_) mk_enclave_trap(desc_, code, reason);
+    void trap(uint8_t type, uint16_t code, const char* reason) {
+        if (desc_) mk_enclave_trap(desc_, type, code, reason);
     }
 
     void reclaim() {
-        if (desc_) mk_enclave_reclaim(desc_);
+        if (desc_) { mk_enclave_reclaim(desc_); }
     }
 
     mk_enclave_desc_t* descriptor() const { return desc_; }
 
+    Enclave(const Enclave&) = delete;
+    Enclave& operator=(const Enclave&) = delete;
 private:
     mk_enclave_desc_t* desc_{nullptr};
 };

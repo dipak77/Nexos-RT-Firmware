@@ -15,6 +15,11 @@ static const char* TAG = "MK_ENCLAVE";
 static mk_enclave_desc_t s_enclaves[MK_MAX_ENCLAVES];
 static bool s_enclave_mgr_initialized = false;
 
+// Previous run-time counter per slot for sampler delta accounting. Static,
+// no alloc. Reset whenever a slot returns to FREE so reuse starts clean.
+static uint32_t s_prev_runtime[MK_MAX_ENCLAVES] = {0};
+static bool s_prev_valid[MK_MAX_ENCLAVES] = {false};
+
 mk_status_t mk_enclave_init(void) {
     mk_port_enter_critical();
     memset(s_enclaves, 0, sizeof(s_enclaves));
@@ -107,7 +112,21 @@ mk_status_t mk_enclave_start(mk_enclave_desc_t* desc, mk_task_entry_t entry, voi
 
     mk_port_enter_critical();
     desc->task_handle = t;
-    desc->stack_base = (uintptr_t)t->stack_base;
+    // Real stack window: t->stack_base is always NULL for port-created tasks
+    // (mk_task_create_ext never copies config->stack_base), so query the
+    // backend. Falls back to 0 = "stack window unknown", in which case SVC
+    // pointer checks and the watchpoint guard stay dormant for this enclave.
+    desc->stack_base = 0;
+    mk_port_exit_critical();
+    uintptr_t real_base = 0;
+    void* port_handle = mk_task_get_port_handle(t);
+    if (port_handle && mk_port_task_stack_base(port_handle, &real_base) && real_base) {
+        mk_port_enter_critical();
+        // Re-validate: task may have been deleted concurrently.
+        if (desc->task_handle == t) desc->stack_base = real_base;
+        mk_port_exit_critical();
+    }
+    mk_port_enter_critical();
     desc->state = MK_ENCLAVE_LIVE;
 
     // Attach enclave descriptor to microkernel task
@@ -140,73 +159,124 @@ mk_enclave_desc_t* mk_enclave_get_by_id(uint32_t id) {
     return &s_enclaves[id];
 }
 
-mk_status_t mk_enclave_trap(mk_enclave_desc_t* desc, uint16_t fault_code, const char* reason) {
+mk_status_t mk_enclave_set_heap_window(mk_enclave_desc_t* desc, uintptr_t base, uintptr_t limit) {
+    if (!desc || limit <= base) return MK_ERR_INVALID;
+    mk_port_enter_critical();
+    desc->base = base;
+    desc->limit = limit;
+    mk_port_exit_critical();
+    return MK_OK;
+}
+
+mk_status_t mk_enclave_trap(mk_enclave_desc_t* desc, uint8_t fault_type, uint16_t fault_code, const char* reason) {
     if (!desc) return MK_ERR_INVALID;
 
+    // Snapshot identity first: a self-trap must not touch desc after halting.
+    char name[16];
+    uint32_t enc_id;
+    mk_task_handle_t victim;
+    bool victim_is_self;
     mk_port_enter_critical();
     desc->state = MK_ENCLAVE_FAILED;
-    uint32_t enc_id = desc->id;
+    strncpy(name, desc->name, sizeof(name) - 1);
+    name[sizeof(name) - 1] = '\0';
+    enc_id = desc->id;
+    victim = desc->task_handle;
+    victim_is_self = (victim != NULL && victim == mk_task_self());
     mk_port_exit_critical();
 
-    ESP_LOGE(TAG, "TRAP FIRED in Enclave [%s] (id=%lu): code=0x%04X, reason=%s",
-             desc->name, (unsigned long)enc_id, fault_code, reason ? reason : "unknown");
+    ESP_LOGE(TAG, "TRAP FIRED in Enclave [%s] (id=%lu): type=%u code=0x%04X, reason=%s",
+             name, (unsigned long)enc_id, fault_type, fault_code, reason ? reason : "unknown");
+    mk_fault_log((uint8_t)enc_id, (mk_fault_type_t)fault_type, fault_code, 0, 0, 0);
 
-    // Record to zero-allocation static SRAM fault ring with mapped fault type
-    mk_fault_type_t ft = MK_FAULT_CAPABILITY_VIOLATION;
-    if (fault_code == 0x0003) ft = MK_FAULT_BUDGET_EXHAUSTED;
-    else if (fault_code == 0x0002) ft = MK_FAULT_OOB_MEMORY_ACCESS;
-    else if (fault_code == 0x0004) ft = MK_FAULT_WATCHDOG_TIMEOUT;
-    else if (fault_code == 0x0005) ft = MK_FAULT_STACK_OVERFLOW;
-    mk_fault_log((uint8_t)enc_id, ft, fault_code, 0, 0, 0);
+    if (!victim) return MK_OK; // nothing executing: FAILED + logged is enough
 
-    // Halt task execution
-    if (desc->task_handle) {
-        mk_task_suspend(desc->task_handle);
+    if (victim_is_self) {
+        // Self-trap: suspending self never returns, so reclaim mutexes first
+        // (marks OWNER_DEAD, never touches live locks), disarm the watchpoint,
+        // then self-delete. The own stack cannot be sanitized — it dies with
+        // the task and is freed by the idle task; documented residual risk
+        // until MPU-backed sanitize exists. Slot stays FAILED-visible; the
+        // operator frees it via mk_enclave_reset/reclaim.
+        mk_mutex_reclaim_for_task(victim);
+        mk_port_enter_critical();
+        desc->held_mutex_mask = 0;
+        mk_port_exit_critical();
+        if (desc->id < 2) mk_watchpoint_disarm((int)desc->id);
+        mk_task_delete(victim); // self-delete: never returns
+        return MK_OK; // unreachable; keeps callers honest if port ever returns
     }
 
-    // Trigger asynchronous robust resource reclamation
-    return mk_enclave_reclaim(desc);
+    // Other-task trap: suspend FIRST so the victim can never resume between
+    // sanitize and delete, then sanitize, then delete.
+    mk_task_suspend(victim);
+    mk_mutex_reclaim_for_task(victim);
+    mk_port_enter_critical();
+    desc->held_mutex_mask = 0;
+    mk_port_exit_critical();
+    if (desc->id < 2) mk_watchpoint_disarm((int)desc->id);
+    if (desc->stack_base && desc->stack_size > 0) {
+        memset((void*)desc->stack_base, 0, desc->stack_size);
+    }
+    mk_task_delete(victim);
+    mk_port_enter_critical();
+    desc->task_handle = NULL;
+    // State stays FAILED (visible for audit) until reclaim frees the slot.
+    mk_port_exit_critical();
+    return MK_OK;
 }
 
 mk_status_t mk_enclave_reclaim(mk_enclave_desc_t* desc) {
     if (!desc) return MK_ERR_INVALID;
 
     mk_port_enter_critical();
+    if (desc->state != MK_ENCLAVE_FAILED && desc->state != MK_ENCLAVE_LIVE &&
+        desc->state != MK_ENCLAVE_RESERVED) {
+        mk_port_exit_critical();
+        return MK_ERR_BAD_STATE;
+    }
     desc->state = MK_ENCLAVE_RECLAIMING;
+    mk_task_handle_t victim = desc->task_handle;
+    bool victim_is_self = (victim != NULL && victim == mk_task_self());
     mk_port_exit_critical();
 
     ESP_LOGW(TAG, "Reclaiming resources for Enclave [%s]...", desc->name);
 
-    // 1. Abort active peripheral DMA if in flight
+    // Driver-level DMA abort is a HAL future hook; today we only drop the flag
+    // so no caller mistakes the log line for a completed abort.
     if (desc->dma_active) {
-        ESP_LOGW(TAG, "Aborting in-flight hardware DMA for enclave [%s]", desc->name);
+        ESP_LOGW(TAG, "Enclave [%s] had DMA marked active; driver abort is a HAL TODO, flag cleared", desc->name);
         desc->dma_active = false;
     }
 
-    // 2. Clear held mutexes and set OWNER_DEAD via active mutex registry
-    if (desc->task_handle) {
-        mk_mutex_reclaim_for_task(desc->task_handle);
+    if (victim) {
+        if (victim_is_self) {
+            // Same self-delete path as trap: reclaim mutexes, delete self.
+            mk_mutex_reclaim_for_task(victim);
+            if (desc->id < 2) mk_watchpoint_disarm((int)desc->id);
+            mk_port_enter_critical();
+            desc->held_mutex_mask = 0;
+            desc->task_handle = NULL;
+            mk_port_exit_critical();
+            mk_task_delete(victim); // never returns
+            return MK_OK;
+        }
+        mk_task_suspend(victim);
+        mk_mutex_reclaim_for_task(victim);
+        if (desc->id < 2) mk_watchpoint_disarm((int)desc->id);
+        if (desc->stack_base && desc->stack_size > 0) {
+            memset((void*)desc->stack_base, 0, desc->stack_size);
+        }
+        mk_task_delete(victim);
+    } else {
+        if (desc->id < 2) mk_watchpoint_disarm((int)desc->id);
     }
     desc->held_mutex_mask = 0;
 
-    // 3. Disarm stack watchpoint
-    if (desc->id < 2) {
-        mk_watchpoint_disarm((int)desc->id);
-    }
-
-    // 4. Zero stack memory to sanitize confidential state
-    if (desc->stack_base && desc->stack_size > 0) {
-        memset((void*)desc->stack_base, 0, desc->stack_size);
-    }
-
-    // 5. Delete task if present
-    if (desc->task_handle) {
-        mk_task_delete(desc->task_handle);
-        desc->task_handle = NULL;
-    }
-
     mk_port_enter_critical();
+    desc->task_handle = NULL;
     desc->state = MK_ENCLAVE_FREE;
+    s_prev_valid[desc->id] = false; // budget sampler restarts clean on reuse
     mk_port_exit_critical();
 
     ESP_LOGI(TAG, "Enclave [%s] successfully reclaimed and reset to FREE", desc->name);
@@ -227,10 +297,6 @@ uint32_t mk_enclave_get_live_count(void) {
     mk_port_exit_critical();
     return count;
 }
-
-// Previous run-time counter per slot for delta accounting. Static, no alloc.
-static uint32_t s_prev_runtime[MK_MAX_ENCLAVES] = {0};
-static bool s_prev_valid[MK_MAX_ENCLAVES] = {false};
 
 void mk_enclave_sample_budgets(void) {
     // Snapshot budgeted LIVE enclaves + their backend handles under one lock.
@@ -261,12 +327,11 @@ void mk_enclave_sample_budgets(void) {
 
         bool exhausted = false;
         mk_port_enter_critical();
-        // Re-validate liveness: trap path may have raced us (single-threaded
-        // timer context vs preempting app task, so re-check under lock).
+        // Re-validate liveness: another trap may have raced us; only the
+        // LIVE->FAILED transition fires once.
         if (items[k].desc->state == MK_ENCLAVE_LIVE) {
             if (delta >= items[k].desc->remaining_budget_us) {
                 items[k].desc->remaining_budget_us = 0;
-                items[k].desc->state = MK_ENCLAVE_FAILED;
                 exhausted = true;
             } else {
                 items[k].desc->remaining_budget_us -= delta;
@@ -274,11 +339,9 @@ void mk_enclave_sample_budgets(void) {
         }
         mk_port_exit_critical();
         if (exhausted) {
-            mk_fault_log((uint8_t)id, MK_FAULT_BUDGET_EXHAUSTED, 0x0003, 0, 0, items[k].desc->budget_us);
-            ESP_LOGE(TAG, "BUDGET TRAP enclave [%s] id=%lu budget=%luus exhausted by run-time delta=%lu",
-                     items[k].desc->name, (unsigned long)id,
-                     (unsigned long)items[k].desc->budget_us, (unsigned long)delta);
-            mk_task_suspend(items[k].task); // real enforcement: stops execution
+            // Single trap path for budget overruns: marks FAILED, logs typed
+            // fault, suspends the real task (timer context, never the victim).
+            mk_enclave_trap(items[k].desc, MK_FAULT_BUDGET_EXHAUSTED, 0x0003, "budget_exhausted");
         }
     }
 }
