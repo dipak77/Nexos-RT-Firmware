@@ -326,9 +326,10 @@ static void system_thread(void* arg) {
             char time_buf[16] = "--:--";
             char date_buf[16] = "--/--";
             char time_full[16] = "--:--:--";
+            char ampm_buf[8] = "";
             
             bool use_24h = storage::SettingsStore::instance().settings().time_24h;
-            time_service::TimeService::instance().get_formatted(time_buf, sizeof(time_buf), date_buf, sizeof(date_buf), use_24h);
+            time_service::TimeService::instance().get_formatted(time_buf, sizeof(time_buf), date_buf, sizeof(date_buf), use_24h, ampm_buf, sizeof(ampm_buf));
             
             struct tm tm{};
             if(time_service::TimeService::instance().get_local_time(tm)) {
@@ -350,6 +351,7 @@ static void system_thread(void* arg) {
             copy_cstr(ui.time_str, time_buf);
             copy_cstr(ui.date_str, date_buf);
             copy_cstr(ui.time_full, time_full);
+            copy_cstr(ui.ampm_str, ampm_buf);
 
             ui.uptime_sec = metrics.uptime_sec;
             ui.free_heap = metrics.free_heap;
@@ -368,7 +370,9 @@ static void system_thread(void* arg) {
 
             {
                 LvglLockGuard lock;
-                gui::DashboardScreen::instance().update(ui);
+                if (lock) {
+                    gui::DashboardScreen::instance().update(ui);
+                }
             }
         }
     }

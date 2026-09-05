@@ -33,7 +33,7 @@ public:
     bool is_synced() const { return status_.synced; }
     TimeStatus status() const { return status_; }
     bool get_local_time(struct tm& out);
-    void get_formatted(char* time_buf, size_t time_len, char* date_buf, size_t date_len, bool use_24h = false);
+    void get_formatted(char* time_buf, size_t time_len, char* date_buf, size_t date_len, bool use_24h = false, char* ampm_buf = nullptr, size_t ampm_len = 0);
 
 private:
     TimeService() = default;

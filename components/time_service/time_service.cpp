@@ -110,17 +110,21 @@ bool TimeService::get_local_time(struct tm& out){
     return true;
 }
 
-void TimeService::get_formatted(char* time_buf, size_t time_len, char* date_buf, size_t date_len, bool use_24h){
+void TimeService::get_formatted(char* time_buf, size_t time_len, char* date_buf, size_t date_len, bool use_24h, char* ampm_buf, size_t ampm_len){
     struct tm ti{};
+    if(ampm_buf && ampm_len > 0) ampm_buf[0] = '\0';
     if(!get_local_time(ti)){
         snprintf(time_buf, time_len, "--:--");
         snprintf(date_buf, date_len, "-- --- ----");
         return;
     }
     if(use_24h){
-        strftime(time_buf, time_len, "%H:%M:%S", &ti);
+        strftime(time_buf, time_len, "%H:%M", &ti);
     } else {
-        strftime(time_buf, time_len, "%I:%M %p", &ti);
+        strftime(time_buf, time_len, "%I:%M", &ti);
+        if(ampm_buf && ampm_len > 0){
+            strftime(ampm_buf, ampm_len, "%p", &ti);
+        }
     }
     strftime(date_buf, date_len, "%d %b %Y", &ti);
 }

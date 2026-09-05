@@ -76,9 +76,9 @@ void DashboardScreen::create(lv_obj_t* parent){
     // === TOP STATUS PILLS ===
     // WiFi pill - glassmorphic
     wifi_pill = lv_obj_create(root);
-    lv_obj_set_size(wifi_pill, 68, 22);
-    lv_obj_align(wifi_pill, LV_ALIGN_TOP_LEFT, 28, 20);
-    lv_obj_set_style_radius(wifi_pill, 11, 0);
+    lv_obj_set_size(wifi_pill, 62, 20);
+    lv_obj_align(wifi_pill, LV_ALIGN_TOP_MID, -36, 26);
+    lv_obj_set_style_radius(wifi_pill, 10, 0);
     lv_obj_set_style_bg_color(wifi_pill, c(0x1E222E), 0);
     lv_obj_set_style_bg_opa(wifi_pill, LV_OPA_70, 0);
     lv_obj_set_style_border_width(wifi_pill, 1, 0);
@@ -106,9 +106,9 @@ void DashboardScreen::create(lv_obj_t* parent){
     
     // BLE pill
     ble_pill = lv_obj_create(root);
-    lv_obj_set_size(ble_pill, 60, 22);
-    lv_obj_align(ble_pill, LV_ALIGN_TOP_RIGHT, -28, 20);
-    lv_obj_set_style_radius(ble_pill, 11, 0);
+    lv_obj_set_size(ble_pill, 62, 20);
+    lv_obj_align(ble_pill, LV_ALIGN_TOP_MID, 36, 26);
+    lv_obj_set_style_radius(ble_pill, 10, 0);
     lv_obj_set_style_bg_color(ble_pill, c(0x1E222E), 0);
     lv_obj_set_style_bg_opa(ble_pill, LV_OPA_70, 0);
     lv_obj_set_style_border_width(ble_pill, 1, 0);
@@ -133,7 +133,7 @@ void DashboardScreen::create(lv_obj_t* parent){
     
     // === TIME CLUSTER ===
     time_container = lv_obj_create(root);
-    lv_obj_set_size(time_container, 180, 60);
+    lv_obj_set_size(time_container, 180, 44);
     lv_obj_align(time_container, LV_ALIGN_TOP_MID, 0, 48);
     lv_obj_set_style_bg_opa(time_container, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(time_container, 0, 0);
@@ -142,9 +142,9 @@ void DashboardScreen::create(lv_obj_t* parent){
     lv_obj_set_flex_align(time_container, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_gap(time_container, 0, 0);
     
-    // Time row: HH:MM + seconds + AM/PM
+    // Time row: HH:MM + seconds
     lv_obj_t* time_row = lv_obj_create(time_container);
-    lv_obj_set_size(time_row, 180, 36);
+    lv_obj_set_size(time_row, 180, 28);
     lv_obj_set_style_bg_opa(time_row, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(time_row, 0, 0);
     lv_obj_set_style_pad_all(time_row, 0, 0);
@@ -165,14 +165,14 @@ void DashboardScreen::create(lv_obj_t* parent){
     lv_obj_set_style_pad_left(time_sec_label, 2, 0);
     
     ampm_label = lv_label_create(time_container);
-    lv_label_set_text(ampm_label, "PM");
+    lv_label_set_text(ampm_label, "");
     lv_obj_set_style_text_color(ampm_label, c(COLOR_ACCENT_CYAN), 0);
     lv_obj_set_style_text_font(ampm_label, &lv_font_montserrat_10, 0);
     lv_obj_set_style_text_letter_space(ampm_label, 2, 0);
     
     // Date - uppercase tracking
     date_label = lv_label_create(root);
-    lv_obj_align(date_label, LV_ALIGN_TOP_MID, 0, 96);
+    lv_obj_align(date_label, LV_ALIGN_TOP_MID, 0, 92);
     lv_label_set_text(date_label, "28 AUG 2026");
     lv_obj_set_style_text_color(date_label, c(COLOR_ACCENT_CYAN), 0);
     lv_obj_set_style_text_font(date_label, &lv_font_montserrat_12, 0);
@@ -181,7 +181,7 @@ void DashboardScreen::create(lv_obj_t* parent){
     // === DIVIDER WITH GLOW ===
     divider = lv_obj_create(root);
     lv_obj_set_size(divider, 80, 1);
-    lv_obj_align(divider, LV_ALIGN_CENTER, 0, -18);
+    lv_obj_align(divider, LV_ALIGN_CENTER, 0, -12);
     lv_obj_set_style_bg_color(divider, c(COLOR_DIVIDER), 0);
     lv_obj_set_style_bg_grad_color(divider, c(COLOR_ACCENT_CYAN), 0);
     lv_obj_set_style_bg_grad_dir(divider, LV_GRAD_DIR_HOR, 0);
@@ -189,9 +189,9 @@ void DashboardScreen::create(lv_obj_t* parent){
     
     // === SYSTEM STATUS CHIP ===
     status_chip = lv_obj_create(root);
-    lv_obj_set_size(status_chip, 96, 22);
-    lv_obj_align(status_chip, LV_ALIGN_CENTER, 0, 0);
-    lv_obj_set_style_radius(status_chip, 11, 0);
+    lv_obj_set_size(status_chip, 96, 20);
+    lv_obj_align(status_chip, LV_ALIGN_CENTER, 0, 4);
+    lv_obj_set_style_radius(status_chip, 10, 0);
     lv_obj_set_style_bg_color(status_chip, c(0x0F2E1F), 0);
     lv_obj_set_style_bg_opa(status_chip, LV_OPA_80, 0);
     lv_obj_set_style_border_width(status_chip, 1, 0);
@@ -220,17 +220,17 @@ void DashboardScreen::create(lv_obj_t* parent){
     
     // === COMMAND GLASS CARD ===
     cmd_card = lv_obj_create(root);
-    lv_obj_set_size(cmd_card, 176, 52);
-    lv_obj_align(cmd_card, LV_ALIGN_CENTER, 0, 40);
+    lv_obj_set_size(cmd_card, 176, 56);
+    lv_obj_align(cmd_card, LV_ALIGN_CENTER, 0, 42);
     apply_glass_card(cmd_card);
-    lv_obj_set_style_pad_all(cmd_card, 8, 0);
+    lv_obj_set_style_pad_all(cmd_card, 6, 0);
     lv_obj_set_flex_flow(cmd_card, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(cmd_card, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_gap(cmd_card, 2, 0);
     
     // Top row: icon + cmd name
     lv_obj_t* cmd_top = lv_obj_create(cmd_card);
-    lv_obj_set_size(cmd_top, 160, 16);
+    lv_obj_set_size(cmd_top, 164, 16);
     lv_obj_set_style_bg_opa(cmd_top, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(cmd_top, 0, 0);
     lv_obj_set_style_pad_all(cmd_top, 0, 0);
@@ -242,15 +242,19 @@ void DashboardScreen::create(lv_obj_t* parent){
     lv_label_set_text(cmd_label, "CMD: WIFI STATUS");
     lv_obj_set_style_text_color(cmd_label, c(COLOR_TEXT_SECONDARY), 0);
     lv_obj_set_style_text_font(cmd_label, &lv_font_montserrat_10, 0);
+    lv_label_set_long_mode(cmd_label, LV_LABEL_LONG_DOT);
+    lv_obj_set_width(cmd_label, 122);
     
     cmd_time_label = lv_label_create(cmd_top);
     lv_label_set_text(cmd_time_label, "5 ms");
     lv_obj_set_style_text_color(cmd_time_label, c(COLOR_TEXT_DIM), 0);
     lv_obj_set_style_text_font(cmd_time_label, &lv_font_montserrat_10, 0);
+    lv_obj_set_width(cmd_time_label, 38);
+    lv_obj_set_style_text_align(cmd_time_label, LV_TEXT_ALIGN_RIGHT, 0);
     
     // Bottom row: result
     lv_obj_t* cmd_bottom = lv_obj_create(cmd_card);
-    lv_obj_set_size(cmd_bottom, 160, 20);
+    lv_obj_set_size(cmd_bottom, 164, 20);
     lv_obj_set_style_bg_opa(cmd_bottom, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(cmd_bottom, 0, 0);
     lv_obj_set_style_pad_all(cmd_bottom, 0, 0);
@@ -268,16 +272,18 @@ void DashboardScreen::create(lv_obj_t* parent){
     lv_label_set_text(cmd_result_label, "PASS • -54 dBm");
     lv_obj_set_style_text_color(cmd_result_label, c(COLOR_TEXT_PRIMARY), 0);
     lv_obj_set_style_text_font(cmd_result_label, &lv_font_montserrat_12, 0);
+    lv_label_set_long_mode(cmd_result_label, LV_LABEL_LONG_DOT);
+    lv_obj_set_width(cmd_result_label, 140);
     
     // === BOTTOM INFO ===
     fw_label = lv_label_create(root);
-    lv_obj_align(fw_label, LV_ALIGN_BOTTOM_LEFT, 36, -22);
+    lv_obj_align(fw_label, LV_ALIGN_BOTTOM_MID, -48, -24);
     lv_label_set_text(fw_label, "FW v1.2.0");
     lv_obj_set_style_text_color(fw_label, c(COLOR_TEXT_DIM), 0);
     lv_obj_set_style_text_font(fw_label, &lv_font_montserrat_10, 0);
     
     uptime_label = lv_label_create(root);
-    lv_obj_align(uptime_label, LV_ALIGN_BOTTOM_RIGHT, -36, -22);
+    lv_obj_align(uptime_label, LV_ALIGN_BOTTOM_MID, 48, -24);
     lv_label_set_text(uptime_label, "00:12:38");
     lv_obj_set_style_text_color(uptime_label, c(COLOR_TEXT_DIM), 0);
     lv_obj_set_style_text_font(uptime_label, &lv_font_montserrat_10, 0);
@@ -285,13 +291,13 @@ void DashboardScreen::create(lv_obj_t* parent){
     // Heap bar
     heap_bar = lv_obj_create(root);
     lv_obj_set_size(heap_bar, 40, 2);
-    lv_obj_align(heap_bar, LV_ALIGN_BOTTOM_MID, 0, -12);
+    lv_obj_align(heap_bar, LV_ALIGN_BOTTOM_MID, 0, -14);
     lv_obj_set_style_radius(heap_bar, 1, 0);
     lv_obj_set_style_bg_color(heap_bar, c(COLOR_DIVIDER), 0);
     lv_obj_set_style_bg_opa(heap_bar, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(heap_bar, 0, 0);
     
-    lv_obj_t* heap_fill = lv_obj_create(heap_bar);
+    heap_fill = lv_obj_create(heap_bar);
     lv_obj_set_size(heap_fill, 28, 2);
     lv_obj_set_style_radius(heap_fill, 1, 0);
     lv_obj_set_style_bg_color(heap_fill, c(COLOR_ACCENT_CYAN), 0);
@@ -307,11 +313,20 @@ void DashboardScreen::update(const UiState& state){
     if(!created_) return;
     using namespace theme;
     
-    // Time with seconds
+    // Time with seconds & dynamic AM/PM
     if(time_label) lv_label_set_text(time_label, state.time_str);
     if(date_label) lv_label_set_text(date_label, state.date_str);
     if(time_sec_label){
         lv_label_set_text(time_sec_label, state.time_full[0] ? state.time_full + 5 : ":00");
+    }
+    if(ampm_label){
+        if(state.ampm_str[0] != '\0'){
+            lv_obj_clear_flag(ampm_label, LV_OBJ_FLAG_HIDDEN);
+            lv_label_set_text(ampm_label, state.ampm_str);
+        } else {
+            lv_obj_add_flag(ampm_label, LV_OBJ_FLAG_HIDDEN);
+            lv_label_set_text(ampm_label, "");
+        }
     }
     
     // WiFi pill
@@ -384,6 +399,13 @@ void DashboardScreen::update(const UiState& state){
     }
     if(cmd_result_label && cmd_icon && cmd_time_label){
         lv_label_set_text(cmd_result_label, state.command_message);
+        char t_buf[16];
+        if(state.command_time_ms > 0){
+            snprintf(t_buf, sizeof(t_buf), "%lu ms", (unsigned long)state.command_time_ms);
+        } else {
+            snprintf(t_buf, sizeof(t_buf), "<1 ms");
+        }
+        lv_label_set_text(cmd_time_label, t_buf);
         if(state.command_status==CommandStatus::SUCCESS){
             lv_label_set_text(cmd_icon, LV_SYMBOL_OK);
             lv_obj_set_style_text_color(cmd_icon, c(COLOR_ACCENT_GREEN), 0);
@@ -411,6 +433,14 @@ void DashboardScreen::update(const UiState& state){
     if(uptime_label){
         char txt[16]; snprintf(txt, sizeof(txt), "%02lu:%02lu:%02lu", (unsigned long)(state.uptime_sec/3600), (unsigned long)((state.uptime_sec%3600)/60), (unsigned long)(state.uptime_sec%60));
         lv_label_set_text(uptime_label, txt);
+    }
+    if(heap_fill && state.free_heap > 0){
+        uint32_t total = 320000;
+        uint32_t free_h = state.free_heap > total ? total : state.free_heap;
+        int32_t fill_w = (int32_t)((free_h * 40) / total);
+        if(fill_w < 2) fill_w = 2;
+        if(fill_w > 40) fill_w = 40;
+        lv_obj_set_width(heap_fill, fill_w);
     }
 }
 

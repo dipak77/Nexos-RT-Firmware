@@ -329,22 +329,22 @@ void disconnect_wifi() {
 
 static KernelManager& os() { return KernelManager::getInstance(); }
 
-// Opaque pill repaint (fixed 88x20) erases previous label — 100% ghost-free.
-// Dual hairline border gives crisp smartwatch anti-aliased appearance.
+// Opaque pill repaint (fixed 76x18) erases previous label — 100% ghost-free.
+// Fits strictly within 240x240 round display bounds (max corner R = 117.4px < 120px).
 static void draw_status_pill(int x, int y, uint16_t col, const char* label) {
     const UiTheme& th = curTheme();
-    tft.fillRoundRect(x, y, 88, 20, 10, th.card);
-    tft.drawRoundRect(x, y, 88, 20, 10, col);
-    tft.drawRoundRect(x + 1, y + 1, 86, 18, 9, col);
-    tft.fillCircle(x + 11, y + 10, 4, col);
-    tft.fillCircle(x + 11, y + 10, 2, th.white);
+    tft.fillRoundRect(x, y, 76, 18, 9, th.card);
+    tft.drawRoundRect(x, y, 76, 18, 9, col);
+    tft.drawRoundRect(x + 1, y + 1, 74, 16, 8, col);
+    tft.fillCircle(x + 10, y + 9, 3, col);
+    tft.fillCircle(x + 10, y + 9, 1, th.white);
     tft.setFont(NULL);
     tft.setTextSize(1);
     tft.setTextWrap(false);
     tft.setTextColor(th.white, th.card);
-    tft.setCursor(x + 21, y + 6);
+    tft.setCursor(x + 18, y + 5);
     char fixed[10];
-    snprintf(fixed, sizeof(fixed), "%-8.8s", label ? label : "");
+    snprintf(fixed, sizeof(fixed), "%-7.7s", label ? label : "");
     tft.print(fixed);
 }
 
@@ -409,12 +409,12 @@ void render_dashboard(uint32_t sec, const KernelStats& stats) {
 
     tft.setFont(&FreeSansBold18pt7b);
     tft.setTextColor(th.white, th.bg);
-    tft.setCursor(54, 72);
+    tft.setCursor(58, 72);
     tft.print(time_buf);
 
     tft.setFont(&FreeSansBold9pt7b);
     tft.setTextColor(th.accent, th.bg);
-    tft.setCursor(162, 72);
+    tft.setCursor(146, 72);
     tft.print(sec_buf);
 
     tft.setFont(NULL);
@@ -473,9 +473,9 @@ void render_dashboard(uint32_t sec, const KernelStats& stats) {
              (unsigned long)(sec % 60));
     tft.print(up_buf);
 
-    // 8. Bottom Pills (y=192, h=20)
-    draw_status_pill(30, 192, wifi_col, wifi_lbl);
-    draw_status_pill(122, 192, ble_col, ble_lbl);
+    // 8. Bottom Pills (y=188, h=18) - strictly within circular display bounds
+    draw_status_pill(40, 188, wifi_col, wifi_lbl);
+    draw_status_pill(124, 188, ble_col, ble_lbl);
 
     // 9. Bottom Heartbeat Sweep (y=218, h=3)
     tft.fillRoundRect(95, 218, 50, 3, 1, th.card);

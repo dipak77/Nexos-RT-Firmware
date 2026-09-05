@@ -13,6 +13,7 @@ struct UiState {
     char time_str[16]{"--:--"};
     char date_str[16]{"-- --- ----"};
     char time_full[16]{"--:--:--"}; // 24h internal
+    char ampm_str[8]{""};          // "AM", "PM", or empty if 24h
     bool wifi_connected{false};
     bool wifi_ap_running{false};
     int wifi_rssi{0};
@@ -28,6 +29,7 @@ struct UiState {
     char latest_command[32]{"READY"};
     CommandStatus command_status{CommandStatus::SUCCESS};
     char command_message[64]{"SYSTEM READY"};
+    uint32_t command_time_ms{0};
     uint32_t uptime_sec{0};
     uint32_t free_heap{0};
     char firmware_version[16]{"1.2.0"};

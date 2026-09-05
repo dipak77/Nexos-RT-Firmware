@@ -57,6 +57,7 @@ private:
     lv_obj_t* fw_label{nullptr};
     lv_obj_t* uptime_label{nullptr};
     lv_obj_t* heap_bar{nullptr};
+    lv_obj_t* heap_fill{nullptr};
     
     bool created_{false};
 };

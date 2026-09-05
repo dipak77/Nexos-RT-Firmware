@@ -54,16 +54,19 @@ void Gui::update_state(const UiState& state){
     ui_state_ = state;
     if(!initialized_) return;
     auto& runtime = lvgl_adapter::LvglRuntime::instance();
-    runtime.lock();
-    DashboardScreen::instance().update(ui_state_);
-    runtime.unlock();
+    if(runtime.lock(200)){
+        DashboardScreen::instance().update(ui_state_);
+        runtime.unlock();
+    } else {
+        ESP_LOGW(TAG, "LVGL lock timeout in update_state — skipping frame");
+    }
 }
 
 void Gui::show_command_result(const char* cmd, CommandStatus status, const char* msg, uint32_t time_ms){
     copy_cstr(ui_state_.latest_command, cmd);
     ui_state_.command_status = status;
     copy_cstr(ui_state_.command_message, msg);
-    (void)time_ms;
+    ui_state_.command_time_ms = time_ms;
     update_state(ui_state_);
 }
 

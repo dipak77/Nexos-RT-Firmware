@@ -323,5 +323,52 @@ class TestNexosV2Architecture(unittest.TestCase):
         self.assertIn("remaining < 5000", sched)
         self.assertNotIn("deadline_us < 5000", sched)
 
+    # --- 12. UI & Display Correctness Contracts (U1 - U6) ---
+    def test_ui_lvgl_lock_guard_checked(self):
+        """U1: LVGL lock acquisition must be checked before updating dashboard."""
+        app_main = self.read("main/app_main.cpp")
+        self.assertIn("LvglLockGuard lock;", app_main)
+        self.assertIn("if (lock)", app_main)
+        gui_c = self.read("components/gui/gui.cpp")
+        self.assertIn("if(runtime.lock(200))", gui_c)
+
+    def test_ui_clock_and_ampm_separation(self):
+        """U2: HH:MM, seconds, and AM/PM must be separated without duplication."""
+        ts_c = self.read("components/time_service/time_service.cpp")
+        self.assertIn('strftime(time_buf, time_len, "%H:%M", &ti)', ts_c)
+        self.assertIn('strftime(time_buf, time_len, "%I:%M", &ti)', ts_c)
+        dash = self.read("components/gui/gui_dashboard.cpp")
+        self.assertIn("lv_obj_clear_flag(ampm_label, LV_OBJ_FLAG_HIDDEN)", dash)
+        self.assertIn("lv_obj_add_flag(ampm_label, LV_OBJ_FLAG_HIDDEN)", dash)
+
+    def test_ui_date_divider_separation(self):
+        """U3: Divider must not cross the date text band."""
+        dash = self.read("components/gui/gui_dashboard.cpp")
+        self.assertIn("lv_obj_align(date_label, LV_ALIGN_TOP_MID, 0, 92)", dash)
+        self.assertIn("lv_obj_align(divider, LV_ALIGN_CENTER, 0, -12)", dash)
+        self.assertIn("lv_obj_align(status_chip, LV_ALIGN_CENTER, 0, 4)", dash)
+
+    def test_ui_circular_safe_area_bounds(self):
+        """U4: Status pills must fit strictly within 240x240 circular panel (R=120)."""
+        main_cpp = self.read("src/main.cpp")
+        self.assertIn("draw_status_pill(40, 188", main_cpp)
+        self.assertIn("draw_status_pill(124, 188", main_cpp)
+        # Verify corner math: x=40, y=206 gives R=117.4 < 120
+        import math
+        r_corner = math.sqrt((40 - 120)**2 + (206 - 120)**2)
+        self.assertLess(r_corner, 120.0)
+
+    def test_ui_command_card_overflow_protection(self):
+        """U5: Command card labels must have ellipsis long-mode and bounded widths."""
+        dash = self.read("components/gui/gui_dashboard.cpp")
+        self.assertIn("lv_label_set_long_mode(cmd_label, LV_LABEL_LONG_DOT)", dash)
+        self.assertIn("lv_label_set_long_mode(cmd_result_label, LV_LABEL_LONG_DOT)", dash)
+
+    def test_ui_dynamic_metrics_wired(self):
+        """U6: Command elapsed time and heap bar fill must be dynamically updated."""
+        dash = self.read("components/gui/gui_dashboard.cpp")
+        self.assertIn("lv_label_set_text(cmd_time_label, t_buf)", dash)
+        self.assertIn("lv_obj_set_width(heap_fill, fill_w)", dash)
+
 if __name__ == "__main__":
     unittest.main()
